@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>English Notebook smoke test (empty state)</title>
+</head>
+<body>
+  <p id="sample">The committee has yet to reach a decision.</p>
+
+  <!-- 不预置任何数据，模拟全新安装 -->
+  <script>
+    try { localStorage.removeItem('en.notebook.v1'); localStorage.removeItem('en.notebook.settings.v1'); } catch (e) { /* ignore */ }
+  </script>
+
+  <script src="../english-notebook.user.js"></script>
+
+  <script>
+    (function () {
+      var results = [];
+      function push(k, v) { results.push(k + '=' + v); }
+      var errors = [];
+      window.addEventListener('error', function (e) {
+        errors.push(String(e.message || e.error || 'unknown'));
+        finish();
+      });
+      function finish() {
+        if (errors.length) results.push('errors=' + errors.join('|'));
+        document.body.setAttribute('data-smoke', results.join(';'));
+        document.title = 'SMOKE ' + results.join(';');
+      }
+      function inputValue(root, sel) {
+        var el = root ? root.querySelector(sel) : null;
+        return el ? String(el.value || '') : '';
+      }
+      function taValue(root) {
+        return inputValue(root, '#enb-capture-text');
+      }
+
+      window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+          var host = document.getElementById('enb-ui-host');
+          var shadow = host && host.shadowRoot;
+          var capture = shadow && shadow.querySelector('#enb-capture');
+
+          var sel = window.getSelection();
+          var range = document.createRange();
+          range.selectNodeContents(document.getElementById('sample'));
+          sel.removeAllRanges();
+          sel.addRange(range);
+
+          window.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 's', code: 'KeyS', altKey: true, bubbles: true, cancelable: true
+          }));
+
+          setTimeout(function () {
+            push('captureOpened', !!(capture && !capture.hidden));
+            var select = shadow && shadow.querySelector('#enb-capture-group');
+            push('defaultNewGroup', !!(select && select.value === '__new__'));
+            push('newGroupVisible', !!(shadow && !shadow.querySelector('#enb-capture-newgroup').hidden));
+
+            // 点击保存：应创建「127.0.0.1」分组并保存记录
+            var save = shadow && shadow.querySelector('#enb-capture-save');
+            push('saveBtn', !!save);
+            push('captureText', taValue(shadow));
+            push('newGroupName', inputValue(shadow, '#enb-capture-newgroup-name'));
+            push('newGroupHosts', inputValue(shadow, '#enb-capture-newgroup-hosts'));
+            if (save) save.click();
+            var toastEl = shadow && shadow.querySelector('#enb-toast-msg');
+            push('toastAfterClick', toastEl ? toastEl.textContent : '');
+
+            setTimeout(function () {
+              var saved = {};
+              try { saved = JSON.parse(localStorage.getItem('en.notebook.v1') || '{}'); } catch (e) { /* ignore */ }
+              var groups = saved.groups || [];
+              var items = saved.items || [];
+              push('groupsCreated', groups.length);
+              push('groupBoundHost', groups.length === 1 && groups[0].hosts.indexOf('127.0.0.1') !== -1);
+              push('itemsCreated', items.length);
+              push('itemTextOK', items.length === 1 && items[0].text === 'The committee has yet to reach a decision.');
+              push('itemGroupOK', items.length === 1 && groups.length === 1 && items[0].groupId === groups[0].id);
+              push('captureClosed', !!(capture && capture.hidden));
+              finish();
+            }, 500);
+          }, 350);
+        }, 400);
+      });
+    })();
+  </script>
+</body>
+</html>

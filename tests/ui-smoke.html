@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>English Notebook smoke test</title>
+</head>
+<body>
+  <p id="sample">This is a sample sentence for testing English Notebook. Another phrase appears here.</p>
+
+  <script>
+    // 先于油猴脚本预置本地数据（模拟以前记录过的内容）
+    try {
+      localStorage.setItem('en.notebook.v1', JSON.stringify({
+        version: 1,
+        groups: [
+          {
+            id: 'g1',
+            name: '示例分组',
+            hosts: ['127.0.0.1'],
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z'
+          }
+        ],
+        items: [
+          {
+            id: 'i1',
+            groupId: 'g1',
+            text: 'This is a sample sentence',
+            note: '示例释义',
+            sourceUrl: 'http://127.0.0.1/',
+            sourceHost: '127.0.0.1',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z'
+          }
+        ]
+      }));
+    } catch (e) {
+      document.body.setAttribute('data-smoke-error', String(e));
+    }
+  </script>
+
+  <script src="../english-notebook.user.js"></script>
+
+  <script>
+    (function () {
+      var results = [];
+      function push(k, v) { results.push(k + '=' + v); }
+
+      window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+          var host = document.getElementById('enb-ui-host');
+          var shadow = host && host.shadowRoot;
+          push('host', !!host);
+          push('shadow', !!shadow);
+          push('toast', !!(shadow && shadow.querySelector('#enb-toast')));
+
+          // 选中示例句子后按 Alt+S（分组已绑定当前网址，应直接保存）
+          var sel = window.getSelection();
+          var range = document.createRange();
+          range.selectNodeContents(document.getElementById('sample'));
+          sel.removeAllRanges();
+          sel.addRange(range);
+          window.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 's', code: 'KeyS', altKey: true, bubbles: true, cancelable: true
+          }));
+
+          setTimeout(function () {
+            var saved = {};
+            try { saved = JSON.parse(localStorage.getItem('en.notebook.v1') || '{}'); } catch (e) { /* ignore */ }
+            var savedItems = saved.items || [];
+            push('savedItems', savedItems.length);
+            push('savedTextMatch', savedItems.some(function (it) {
+              return it.text === 'This is a sample sentence for testing English Notebook. Another phrase appears here.';
+            }));
+
+            // 模拟 Alt+O 打开侧栏
+            window.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'o', code: 'KeyO', altKey: true, bubbles: true, cancelable: true
+            }));
+
+            setTimeout(function () {
+              var side = shadow && shadow.querySelector('#enb-sidebar');
+              push('sidebarOpen', !!(side && !side.hidden));
+              push('groups', side ? side.querySelectorAll('.group').length : 0);
+              push('items', side ? side.querySelectorAll('.item').length : 0);
+
+              // 模拟 Alt+M 打开管理器
+              window.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'm', code: 'KeyM', altKey: true, bubbles: true, cancelable: true
+              }));
+
+              setTimeout(function () {
+                var mgr = shadow && shadow.querySelector('#enb-backdrop');
+                push('managerOpen', !!(mgr && !mgr.hidden));
+                push('groupRows', mgr ? mgr.querySelectorAll('.group-row').length : 0);
+                push('managerItems', mgr ? mgr.querySelectorAll('.item').length : 0);
+
+                // 等重访高亮（init 后约 1.2s）完成
+                setTimeout(function () {
+                  push('marks', document.querySelectorAll('mark.enb-hl').length);
+                  document.body.setAttribute('data-smoke', results.join(';'));
+                  document.title = 'SMOKE ' + results.join(';');
+                }, 1600);
+              }, 150);
+            }, 150);
+          }, 300);
+        }, 400);
+      });
+    })();
+  </script>
+</body>
+</html>

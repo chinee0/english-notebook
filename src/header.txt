@@ -1,0 +1,14 @@
+// ==UserScript==
+// @name         English Notebook · 英语句子与词组笔记
+// @namespace    https://github.com/your-name/english-notebook
+// @version      0.1.0
+// @description  在任意网页选中英文句子/词组，按 Alt+S 记录；按网站分组管理、搜索、朗读、导出导入。全站静默，只靠快捷键和油猴菜单唤出。
+// @author       you
+// @match        *://*/*
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
+// @grant        GM_addValueChangeListener
+// @run-at       document-idle
+// @noframes
+// ==/UserScript==
