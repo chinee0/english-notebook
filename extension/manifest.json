@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "English Notebook · 英文批注与翻译",
+  "version": "0.2.0",
+  "description": "选中英文右键翻译并记录，右侧 Word 式批注栏，彩色嵌套波浪线，按页面绑定，本地 git 自动同步。",
+  "permissions": ["contextMenus", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["core.js", "render.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "options_page": "options.html",
+  "commands": {
+    "translate-selection": {
+      "suggested_key": { "default": "Alt+T" },
+      "description": "翻译并记录选中内容"
+    }
+  }
+}

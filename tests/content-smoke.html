@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>English Notebook content smoke</title></head>
+<body>
+  <p id="sample">The committee has yet to reach a decision.</p>
+
+  <script>
+    // 在 content.js 之前注入最小 chrome API 桩
+    window.__lastMessage = null;
+    window.__onMessage = null;
+    window.chrome = {
+      runtime: {
+        sendMessage: function (msg, cb) {
+          window.__lastMessage = msg;
+          if (msg && msg.type === 'GET_PAGE_STATE') {
+            var C = window.ENB;
+            var s = C.normalizeState(null);
+            var parent = C.addItem(s, {
+              text: 'The committee has yet to reach a decision.',
+              translation: '委员会尚未作出决定。',
+              pageUrl: location.href,
+            });
+            var child = C.addItem(s, {
+              text: 'yet to reach',
+              translation: '尚未达成',
+              pageUrl: location.href,
+              parentId: parent.id,
+            });
+            cb({ ok: true, items: [parent, child], sync: { serverUp: true, configured: true, dataFile: 'D:\\notes.json' } });
+            return;
+          }
+          if (msg && msg.type === 'SET_SYNC_PATH') {
+            cb({ ok: true, dataFile: 'D:\\notes.json', sync: { configured: true } });
+            return;
+          }
+          cb({ ok: true });
+        },
+        onMessage: {
+          addListener: function (fn) { window.__onMessage = fn; },
+        },
+        lastError: undefined,
+        openOptionsPage: function () { /* noop */ },
+      },
+    };
+  </script>
+
+  <script src="../extension/core.js"></script>
+  <script src="../extension/render.js"></script>
+  <script src="../extension/content.js"></script>
+
+  <script>
+    (function () {
+      var results = [];
+      var errors = [];
+      function push(k, v) { results.push(k + '=' + v); }
+      window.addEventListener('error', function (e) { errors.push(String(e.message || e.error)); });
+
+      function report() {
+        if (errors.length) results.push('errors=' + errors.join('|'));
+        var out = results.join(';');
+        document.body.setAttribute('data-smoke', out);
+        document.title = 'SMOKE ' + out;
+        try {
+          fetch('/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result: out, at: new Date().toISOString() }),
+          });
+        } catch (e) { /* ignore */ }
+      }
+
+      window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+          var host = document.getElementById('enb-ui-host');
+          var shadow = host && host.shadowRoot;
+          push('host', !!host);
+          push('shadow', !!shadow);
+          push('ready', document.documentElement.getAttribute('data-enb'));
+          push('count', document.documentElement.getAttribute('data-enb-count'));
+          push('setupHidden', !!(shadow && shadow.querySelector('#enb-setup').hidden));
+          push('panelHiddenInitially', !!(shadow && shadow.querySelector('#enb-panel').hidden));
+          push('edgeVisible', !!(shadow && !shadow.querySelector('#enb-edge').hidden));
+          push('spans', document.querySelectorAll('.enb-ann').length);
+
+          try {
+            // 打开批注栏
+            shadow.querySelector('#enb-edge').click();
+            push('panelOpen', !shadow.querySelector('#enb-panel').hidden);
+            push('cards', shadow.querySelectorAll('.card').length);
+            var cards = shadow.querySelectorAll('.card');
+            push('nestedIndent', cards.length > 1 ? cards[1].style.marginLeft : '');
+
+            // 后台消息：toast
+            if (window.__onMessage) {
+              window.__onMessage({ type: 'SHOW_TOAST', message: '测试提示' }, {}, function () {});
+              push('toastText', shadow.querySelector('#enb-toast-msg').textContent);
+              push('toastVisible', !shadow.querySelector('#enb-toast').hidden);
+            } else {
+              push('toastText', 'no-listener');
+            }
+
+            // 后台消息：REQUEST_CAPTURE（选中父批注里的短语）
+            if (window.__onMessage) {
+              var parentSpan = document.querySelector('.enb-ann');
+              var textNode = null;
+              if (parentSpan) {
+                for (var i = 0; i < parentSpan.childNodes.length; i++) {
+                  var n = parentSpan.childNodes[i];
+                  if (n.nodeType === 3 && n.nodeValue.indexOf('committee') !== -1) { textNode = n; break; }
+                }
+              }
+              if (textNode) {
+                var start = textNode.nodeValue.indexOf('committee');
+                var range = document.createRange();
+                range.setStart(textNode, start);
+                range.setEnd(textNode, start + 'committee'.length);
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
+              window.__onMessage({ type: 'REQUEST_CAPTURE' }, {}, function (capture) {
+                push('captureText', capture && capture.text);
+                push('captureHasParent', !!(capture && capture.parentId));
+              });
+            }
+          } catch (e) {
+            errors.push(String((e && e.stack) || e));
+          }
+
+          setTimeout(report, 300);
+        }, 900);
+      });
+    })();
+  </script>
+</body>
+</html>

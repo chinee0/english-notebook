@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>English Notebook render smoke</title>
+</head>
+<body>
+  <p id="p1">The committee has yet to reach a decision on the proposal.</p>
+  <p id="p2">The committee has <b>yet to reach</b> a decision across nodes.</p>
+
+  <script src="../extension/core.js"></script>
+  <script src="../extension/render.js"></script>
+  <script>
+    (function () {
+      var results = [];
+      var errors = [];
+      function push(k, v) { results.push(k + '=' + v); }
+      window.addEventListener('error', function (e) { errors.push(String(e.message || e.error)); });
+
+      window.addEventListener('DOMContentLoaded', function () {
+        try {
+          var C = window.ENB;
+          var R = C.Render;
+          var pageUrl = location.href;
+
+          var state = C.normalizeState(null);
+          var parent = C.addItem(state, {
+            text: 'The committee has yet to reach a decision on the proposal.',
+            translation: '委员会尚未就该提案作出决定。',
+            pageUrl: pageUrl,
+          });
+          var child = C.addItem(state, {
+            text: 'yet to reach',
+            translation: '尚未达成',
+            pageUrl: pageUrl,
+            parentId: parent.id,
+          });
+
+          push('parentDepth', C.depthOf(state, parent.id));
+          push('childDepth', C.depthOf(state, child.id));
+
+          var res = R.applyAnnotations(document.body, [parent, child], {});
+          push('applied', res.applied);
+          push('missed', res.missed);
+
+          var spans = document.querySelectorAll('.enb-ann');
+          push('spans', spans.length);
+
+          var parentSpan = document.querySelector('.enb-ann[data-ann-id="' + parent.id + '"]');
+          var childSpan = document.querySelector('.enb-ann[data-ann-id="' + child.id + '"]');
+          push('parentSpan', !!parentSpan);
+          push('childSpan', !!childSpan);
+          push('nested', !!(parentSpan && childSpan && parentSpan.contains(childSpan)));
+
+          if (parentSpan && childSpan) {
+            push('parentColor', parentSpan.style.textDecorationColor);
+            push('childColor', childSpan.style.textDecorationColor);
+            push('differentColors', parentSpan.style.textDecorationColor !== childSpan.style.textDecorationColor);
+            push('wavy', parentSpan.style.textDecorationStyle === 'wavy');
+          }
+
+          // 在父批注里选中一个短语，采集结果应带 parentId
+          var textNode = null;
+          if (parentSpan) {
+            for (var i = 0; i < parentSpan.childNodes.length; i++) {
+              var n = parentSpan.childNodes[i];
+              if (n.nodeType === 3 && n.nodeValue.indexOf('committee') !== -1) { textNode = n; break; }
+            }
+          }
+          if (textNode) {
+            var start = textNode.nodeValue.indexOf('committee');
+            var range = document.createRange();
+            range.setStart(textNode, start);
+            range.setEnd(textNode, start + 'committee'.length);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            var cap = R.captureSelection(document.body, sel);
+            push('captureText', cap && cap.text);
+            push('captureParent', !!(cap && cap.parentId === parent.id));
+          } else {
+            push('captureParent', false);
+          }
+
+          // 跨标签节点的整句匹配（p2 中 <b> 把句子拆开）
+          var cross = C.addItem(state, {
+            text: 'The committee has yet to reach a decision across nodes.',
+            translation: '跨节点匹配测试。',
+            pageUrl: pageUrl,
+          });
+          var res2 = R.applyAnnotations(document.body, [parent, child, cross], {});
+          push('crossApplied', res2.applied);
+          push('crossMissed', res2.missed);
+          push('crossSpanCount', document.querySelectorAll('.enb-ann[data-ann-id="' + cross.id + '"]').length);
+        } catch (e) {
+          errors.push(String((e && e.stack) || e));
+        }
+
+        if (errors.length) results.push('errors=' + errors.join('|'));
+        document.body.setAttribute('data-smoke', results.join(';'));
+        document.title = 'SMOKE ' + results.join(';');
+      });
+    })();
+  </script>
+</body>
+</html>

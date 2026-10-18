@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>English Notebook · 设置与批注管理</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #1f2328;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+      --danger: #dc2626;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --border: #273244;
+        --accent: #60a5fa;
+        --accent-soft: #1e3a8a;
+        --danger: #f87171;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    header h1 { margin: 0; font-size: 17px; }
+    header .sub { color: var(--muted); font-size: 12px; }
+    main { max-width: 1060px; margin: 0 auto; padding: 20px 24px 60px; display: flex; flex-direction: column; gap: 16px; }
+    section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+    section h2 { margin: 0 0 4px; font-size: 15px; }
+    section .desc { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+    label.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    label.field > span { color: var(--muted); font-size: 12px; }
+    input[type=text], input[type=password], select, textarea {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+    button:hover { background: var(--accent-soft); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger { color: var(--danger); border-color: var(--danger); }
+    button.small { padding: 3px 9px; font-size: 12px; }
+    .status { font-size: 13px; margin-bottom: 10px; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); white-space: pre-wrap; }
+    .status.ok { border-color: #10b98166; }
+    .status.bad { border-color: #ef444466; }
+    .muted { color: var(--muted); }
+    .list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow: auto; }
+    .group-row, .item-row { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; }
+    .group-row .name { font-weight: 600; }
+    .group-row .hosts { color: var(--muted); font-size: 12px; }
+    .group-row .spacer, .item-row .spacer { flex: 1; }
+    .item-row { align-items: flex-start; flex-direction: column; }
+    .item-row .quote { font-size: 13px; }
+    .item-row .meta { color: var(--muted); font-size: 11px; }
+    .item-row .line { display: flex; gap: 8px; width: 100%; align-items: center; }
+    .item-row .line input[type=text] { flex: 1; }
+    .item-row .line select { width: 180px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    .toolbar input { flex: 1; min-width: 180px; }
+    details.help { margin-top: 8px; }
+    details.help summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+    code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+    #custom-fields, #openai-fields { display: grid; gap: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>English Notebook</h1>
+    <span class="sub">设置与批注管理 · v0.2.0</span>
+  </header>
+
+  <main>
+    <section>
+      <h2>本地同步（git）</h2>
+      <p class="desc">扩展通过本地服务读写一个 JSON 数据文件，并自动 git commit。首次使用先双击 <code>sync-server\start-sync.bat</code>，再填写文件绝对路径。</p>
+      <div id="sync-status" class="status">检测中…</div>
+      <div class="row">
+        <label class="field"><span>同步服务地址</span><input id="sync-endpoint" type="text" placeholder="http://127.0.0.1:17890" /></label>
+        <label class="field"><span>数据文件绝对路径</span><input id="sync-path" type="text" placeholder="例如 D:\notes\english-notes.json" /></label>
+      </div>
+      <div class="actions">
+        <button id="btn-save-sync" class="primary">保存地址并连接</button>
+        <button id="btn-test-sync">测试连接</button>
+        <button id="btn-sync-now">立即同步</button>
+      </div>
+      <details class="help">
+        <summary>数据文件说明</summary>
+        <p class="muted">文件结构为 JSON：version / groups / items。同步服务每次写入后会尝试在数据文件所在 git 仓库自动提交；不是 git 仓库时只写文件、不提交。</p>
+      </details>
+    </section>
+
+    <section>
+      <h2>翻译 Provider</h2>
+      <p class="desc">默认使用免费 MyMemory；也可以配置 OpenAI 兼容接口或任意自定义 HTTP 接口。</p>
+      <div class="row">
+        <label class="field"><span>Provider</span>
+          <select id="trans-provider">
+            <option value="mymemory">MyMemory（免费，无需 Key）</option>
+            <option value="google">Google Translate 免 Key 接口（国内可能不可用）</option>
+            <option value="openai">OpenAI 兼容接口（可填中转 baseURL）</option>
+            <option value="custom">自定义 HTTP 接口</option>
+            <option value="none">不自动翻译</option>
+          </select>
+        </label>
+        <label class="field"><span>目标语言</span><input id="trans-lang" type="text" placeholder="zh-CN" /></label>
+      </div>
+
+      <div id="openai-fields">
+        <div class="row">
+          <label class="field"><span>Base URL</span><input id="openai-base" type="text" placeholder="https://api.openai.com/v1" /></label>
+          <label class="field"><span>模型</span><input id="openai-model" type="text" placeholder="gpt-4o-mini" /></label>
+        </div>
+        <label class="field"><span>API Key</span><input id="openai-key" type="password" placeholder="sk-..." /></label>
+      </div>
+
+      <div id="custom-fields">
+        <label class="field"><span>请求地址（GET 时可用 {{text}} / {{lang}} 占位）</span><input id="custom-url" type="text" placeholder="https://example.com/translate?q={{text}}&to={{lang}}" /></label>
+        <div class="row">
+          <label class="field"><span>Method</span>
+            <select id="custom-method"><option>GET</option><option>POST</option></select>
+          </label>
+          <label class="field"><span>结果字段路径（点号，如 data.translation）</span><input id="custom-result" type="text" placeholder="translation" /></label>
+        </div>
+        <label class="field"><span>额外请求头 JSON（可选）</span><textarea id="custom-headers" rows="2" placeholder='{"Authorization":"Bearer xxx"}'></textarea></label>
+        <label class="field"><span>POST 请求体模板（{{text}} 会被替换为转义后的原文）</span><textarea id="custom-body" rows="2" placeholder='{"text":"{{text}}","target":"{{lang}}"}'></textarea></label>
+      </div>
+
+      <div class="actions">
+        <button id="btn-save-trans" class="primary">保存翻译设置</button>
+        <button id="btn-test-trans">测试翻译</button>
+      </div>
+      <div id="trans-test-result" class="status" hidden></div>
+    </section>
+
+    <section>
+      <h2>分组</h2>
+      <p class="desc">分组可绑定域名；在绑定网站右键记录时，批注会自动归入第一个匹配的分组。</p>
+      <div class="row">
+        <label class="field"><span>新分组名称</span><input id="group-name" type="text" placeholder="例如 BBC 新闻" /></label>
+        <label class="field"><span>绑定域名（空格/逗号分隔，可留空）</span><input id="group-hosts" type="text" placeholder="bbc.com" /></label>
+      </div>
+      <div class="actions"><button id="btn-add-group" class="primary">新建分组</button></div>
+      <div id="group-list" class="list" style="margin-top:10px;"></div>
+    </section>
+
+    <section>
+      <h2>全部批注</h2>
+      <p class="desc">按页面绑定；这里可以全局搜索、改译文、换分组或删除。</p>
+      <div class="toolbar">
+        <input id="record-search" type="text" placeholder="搜索原文 / 译文 / 页面标题" />
+        <button id="btn-export">导出 JSON</button>
+        <button id="btn-import">导入 JSON</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden />
+      </div>
+      <div id="record-list" class="list"></div>
+      <p class="muted" id="record-count"></p>
+    </section>
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>

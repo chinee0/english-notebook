@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>English Notebook extension smoke</title></head>
+<body>
+  <p id="sample">The committee has yet to reach a decision on the proposal.</p>
+  <script>
+    (function () {
+      var attempts = 0;
+      function report(out) {
+        document.body.setAttribute('data-smoke', out);
+        document.title = 'SMOKE ' + out;
+        try {
+          fetch('/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result: out, at: new Date().toISOString() }),
+          });
+        } catch (e) { /* ignore */ }
+      }
+      function check() {
+        attempts++;
+        var el = document.getElementById('enb-ui-host');
+        var ready = document.documentElement.getAttribute('data-enb');
+        var shadow = el && el.shadowRoot;
+        var ok = ready === 'ready' && el && shadow;
+        if (ok || attempts > 60) {
+          var out = 'ready=' + (ready || 'none') +
+            ';host=' + !!el +
+            ';shadow=' + !!shadow +
+            ';panel=' + !!(shadow && shadow.querySelector('#enb-panel')) +
+            ';edge=' + !!(shadow && shadow.querySelector('#enb-edge')) +
+            ';setup=' + !!(shadow && shadow.querySelector('#enb-setup')) +
+            ';attempts=' + attempts;
+          report(out);
+          return;
+        }
+        setTimeout(check, 150);
+      }
+      window.addEventListener('DOMContentLoaded', function () { setTimeout(check, 400); });
+    })();
+  </script>
+</body>
+</html>
