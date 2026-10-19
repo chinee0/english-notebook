@@ -28,6 +28,8 @@ let pushTimer = null;
 let initPromise = null;
 /* 是否已经自动弹过「同步设置」引导；存 chrome.storage 里，全浏览器只弹一次 */
 let setupPrompted = false;
+/* 从旧版本升级上来时，直接把引导标记为已提示，避免老用户重载后又弹一次 */
+let forceSetupPrompted = false;
 
 /* ---------------- 基础工具 ---------------- */
 
@@ -56,7 +58,7 @@ async function ensureInit() {
     const data = await storageGet(['state', 'settings', 'setupPrompted']);
     stateCache = C.normalizeState(data.state);
     settingsCache = deepDefaults(data.settings, DEFAULT_SETTINGS);
-    setupPrompted = !!data.setupPrompted;
+    setupPrompted = !!data.setupPrompted || forceSetupPrompted;
     await storageSet({ state: stateCache, settings: settingsCache, setupPrompted: setupPrompted });
   })().then(function () { initPromise = null; });
   return initPromise;
@@ -97,7 +99,8 @@ async function ensureReady() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(function () {
+chrome.runtime.onInstalled.addListener(function (details) {
+  if (details && details.reason === 'update') forceSetupPrompted = true;
   ensureReady().then(syncOnStart);
 });
 

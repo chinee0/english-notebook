@@ -14,6 +14,10 @@ function send(message) {
 }
 
 async function init() {
+  try {
+    $('enb-ver').textContent = '扩展已运行 · v' + chrome.runtime.getManifest().version;
+  } catch (e) { /* ignore */ }
+
   const summary = await send({ type: 'GET_STATE_SUMMARY' });
   if (!summary || !summary.ok) {
     $('stats').textContent = '后台没有响应';
