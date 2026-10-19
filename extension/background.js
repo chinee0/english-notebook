@@ -26,6 +26,8 @@ let syncCache = { serverUp: false, configured: false, dataFile: '', git: null, c
 let lastRevision = '';
 let pushTimer = null;
 let initPromise = null;
+/* 是否已经自动弹过「同步设置」引导；存 chrome.storage 里，全浏览器只弹一次 */
+let setupPrompted = false;
 
 /* ---------------- 基础工具 ---------------- */
 
@@ -51,10 +53,11 @@ async function ensureInit() {
   if (stateCache && settingsCache) return;
   if (initPromise) return initPromise;
   initPromise = (async function () {
-    const data = await storageGet(['state', 'settings']);
+    const data = await storageGet(['state', 'settings', 'setupPrompted']);
     stateCache = C.normalizeState(data.state);
     settingsCache = deepDefaults(data.settings, DEFAULT_SETTINGS);
-    await storageSet({ state: stateCache, settings: settingsCache });
+    setupPrompted = !!data.setupPrompted;
+    await storageSet({ state: stateCache, settings: settingsCache, setupPrompted: setupPrompted });
   })().then(function () { initPromise = null; });
   return initPromise;
 }
@@ -466,7 +469,18 @@ async function handleMessage(message, sender) {
 
   if (type === 'GET_PAGE_STATE') {
     const items = C.itemsForPage(stateCache, message.url || (sender.tab && sender.tab.url) || '');
-    return { ok: true, items: items, sync: syncCache };
+    return {
+      ok: true,
+      items: items,
+      sync: syncCache,
+      promptSetup: !setupPrompted && !syncCache.configured,
+    };
+  }
+
+  if (type === 'MARK_SETUP_PROMPTED') {
+    setupPrompted = true;
+    await storageSet({ setupPrompted: true });
+    return { ok: true };
   }
 
   if (type === 'UPDATE_ITEM') {
@@ -493,7 +507,12 @@ async function handleMessage(message, sender) {
   }
 
   if (type === 'SET_SYNC_PATH') {
-    return setSyncPath(message.dataFile);
+    const result = await setSyncPath(message.dataFile);
+    if (result && result.ok) {
+      setupPrompted = true;
+      await storageSet({ setupPrompted: true });
+    }
+    return result;
   }
 
   if (type === 'GET_STATE_SUMMARY') {

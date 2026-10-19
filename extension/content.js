@@ -59,7 +59,7 @@
     renderAnnotations();
     renderPanel();
     updateEdge();
-    maybeShowSetup();
+    maybeShowSetup(resp.promptSetup);
   }
 
   function renderAnnotations() {
@@ -319,11 +319,13 @@
 
   /* ---------------- 首次同步路径设置 ---------------- */
 
-  function maybeShowSetup() {
+  function maybeShowSetup(promptSetup) {
     if (setupShown || (sync && sync.configured)) return;
-    if (sessionStorage.getItem('enb-setup-dismissed') === '1') return;
+    if (!promptSetup) return;
     setupShown = true;
     showSetup();
+    /* 后台把「已提示过」存 chrome.storage，之后所有页面/标签页都不再自动弹 */
+    send({ type: 'MARK_SETUP_PROMPTED' });
   }
 
   function showSetup(message) {
@@ -337,8 +339,8 @@
 
   function dismissSetup() {
     qs('enb-setup').hidden = true;
-    try { sessionStorage.setItem('enb-setup-dismissed', '1'); } catch (e) { /* ignore */ }
-    toast('可随时在扩展设置里填写数据文件路径');
+    send({ type: 'MARK_SETUP_PROMPTED' });
+    toast('之后可在扩展设置（Alt+M）里填写数据文件路径');
   }
 
   async function submitSetup() {
