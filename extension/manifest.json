@@ -17,6 +17,10 @@
     }
   ],
   "options_page": "options.html",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "English Notebook"
+  },
   "commands": {
     "translate-selection": {
       "suggested_key": { "default": "Alt+T" },

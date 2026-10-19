@@ -95,14 +95,15 @@ async function ensureReady() {
 }
 
 chrome.runtime.onInstalled.addListener(function () {
-  createMenus();
   ensureReady().then(syncOnStart);
 });
 
 chrome.runtime.onStartup.addListener(function () {
-  createMenus();
   ensureReady().then(syncOnStart);
 });
+
+/* Service Worker 每次启动都重建右键菜单：避免安装时注册失败后菜单永久缺失 */
+createMenus();
 
 function createMenus() {
   chrome.contextMenus.removeAll(function () {
@@ -532,6 +533,19 @@ async function handleMessage(message, sender) {
 
   if (type === 'OPEN_OPTIONS') {
     chrome.runtime.openOptionsPage();
+    return { ok: true };
+  }
+
+  if (type === 'TRANSLATE_SELECTION') {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs && tabs[0];
+    if (!tab) return { ok: false, error: '找不到当前标签页' };
+    await captureAndRecord(tab, true, '');
+    return { ok: true };
+  }
+
+  if (type === 'RELOAD_EXTENSION') {
+    chrome.runtime.reload();
     return { ok: true };
   }
 
