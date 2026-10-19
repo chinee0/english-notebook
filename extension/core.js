@@ -35,6 +35,39 @@
       .slice(0, max || 4000);
   }
 
+  /*
+   * 把长文本切成翻译接口能接受的块。
+   * MyMemory 单次查询上限 500 字符，所以默认切 450；优先在句末/逗号/空格处切。
+   */
+  function splitForTranslation(text, maxLen) {
+    const limit = Math.max(50, Number(maxLen) || 450);
+    const clean = cleanText(text, 20000);
+    if (!clean) return [];
+    if (clean.length <= limit) return [clean];
+
+    const parts = [];
+    let rest = clean;
+    while (rest.length > limit) {
+      const windowText = rest.slice(0, limit);
+      let cut = -1;
+      const seps = ['. ', '! ', '? ', '; ', ', '];
+      for (let i = 0; i < seps.length; i++) {
+        const idx = windowText.lastIndexOf(seps[i]);
+        if (idx >= Math.floor(limit * 0.3)) { cut = idx + 1; break; }
+      }
+      if (cut <= 0) {
+        const sp = windowText.lastIndexOf(' ');
+        cut = sp > 0 ? sp : limit;
+      }
+      const chunk = rest.slice(0, cut).trim();
+      if (chunk) parts.push(chunk);
+      rest = rest.slice(cut).trim();
+      if (!rest) break;
+    }
+    if (rest) parts.push(rest);
+    return parts;
+  }
+
   /* ---------- 页面 / 网址 ---------- */
 
   function normalizePageUrl(raw) {
@@ -390,6 +423,7 @@
     cloneState: cloneState,
     touch: touch,
     cleanText: cleanText,
+    splitForTranslation: splitForTranslation,
     normalizePageUrl: normalizePageUrl,
     normalizeHost: normalizeHost,
     hostOfPage: hostOfPage,

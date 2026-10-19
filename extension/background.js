@@ -243,6 +243,15 @@ async function fetchJson(url, options, timeoutMs) {
   }
 }
 
+async function translateMyMemoryChunk(chunk, targetLang) {
+  const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(chunk) +
+    '&langpair=en|' + encodeURIComponent(targetLang);
+  const r = await fetchJson(url, {}, 8000);
+  const t = r.data && r.data.responseData && r.data.responseData.translatedText;
+  if (!t || /MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID|PLEASE SELECT/i.test(t)) return null;
+  return String(t).trim();
+}
+
 async function translateText(text) {
   const cfg = settingsCache.translation;
   const targetLang = cfg.targetLang || 'zh-CN';
@@ -251,23 +260,34 @@ async function translateText(text) {
 
   try {
     if (provider === 'mymemory') {
-      const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) +
-        '&langpair=en|' + encodeURIComponent(targetLang);
-      const r = await fetchJson(url, {}, 8000);
-      const t = r.data && r.data.responseData && r.data.responseData.translatedText;
-      if (!t || /MYMEMORY WARNING/i.test(t)) return { ok: false, error: '免费翻译接口返回异常（可稍后重试或换 provider）' };
-      return { ok: true, text: String(t).trim(), provider: provider };
+      /* MyMemory 单次查询上限 500 字符，长文本先按句切块再逐块翻译 */
+      const chunks = C.splitForTranslation(text, 450);
+      if (!chunks.length) return { ok: false, error: '没有可翻译的内容' };
+      const parts = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const part = await translateMyMemoryChunk(chunks[i], targetLang);
+        if (!part) {
+          return { ok: false, error: '免费翻译接口返回异常（长文本已自动分段；可稍后重试或改用 OpenAI/自定义接口）' };
+        }
+        parts.push(part);
+      }
+      return { ok: true, text: parts.join(' '), provider: provider, chunks: chunks.length };
     }
 
     if (provider === 'google') {
-      const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' +
-        encodeURIComponent(targetLang) + '&dt=t&q=' + encodeURIComponent(text);
-      const r = await fetchJson(url, {}, 8000);
-      const arr = r.data && r.data[0];
-      if (!arr) return { ok: false, error: 'Google 翻译接口无结果（可能网络不可用）' };
-      const t = arr.map(function (x) { return (x && x[0]) || ''; }).join('');
-      if (!t) return { ok: false, error: 'Google 翻译没有返回译文' };
-      return { ok: true, text: t, provider: provider };
+      const chunks = C.splitForTranslation(text, 1800);
+      const parts = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' +
+          encodeURIComponent(targetLang) + '&dt=t&q=' + encodeURIComponent(chunks[i]);
+        const r = await fetchJson(url, {}, 8000);
+        const arr = r.data && r.data[0];
+        if (!arr) return { ok: false, error: 'Google 翻译接口无结果（可能网络不可用）' };
+        const t = arr.map(function (x) { return (x && x[0]) || ''; }).join('');
+        if (!t) return { ok: false, error: 'Google 翻译没有返回译文' };
+        parts.push(t);
+      }
+      return { ok: true, text: parts.join(' '), provider: provider, chunks: chunks.length };
     }
 
     if (provider === 'openai') {

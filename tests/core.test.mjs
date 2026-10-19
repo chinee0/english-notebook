@@ -186,3 +186,27 @@ test('exportState: 深拷贝并带版本', function () {
   out.items[0].text = 'changed';
   assert.equal(s.items[0].text, 'hi');
 });
+
+test('splitForTranslation: 短文本原样，长文本切块且不超过 450 字符', function () {
+  assert.deepEqual(C.splitForTranslation('short sentence', 450), ['short sentence']);
+
+  const long = 'This is a sentence for translation. '.repeat(40) + 'The end.';
+  const chunks = C.splitForTranslation(long, 450);
+  assert.ok(chunks.length > 1, '长文本应切成多块');
+  chunks.forEach(function (chunk) {
+    assert.ok(chunk.length <= 450, '每块不超过 450 字符，实际 ' + chunk.length);
+  });
+  assert.equal(
+    chunks.join(' ').replace(/\s+/g, ' ').trim(),
+    long.replace(/\s+/g, ' ').trim(),
+    '拼回后应与原文一致'
+  );
+  assert.ok(chunks[0].endsWith('.'), '优先在句末切');
+});
+
+test('splitForTranslation: 无标点时按空格切，空文本返回空数组', function () {
+  const chunks = C.splitForTranslation('word '.repeat(200), 100);
+  assert.ok(chunks.length > 1);
+  assert.deepEqual(C.splitForTranslation('   ', 450), []);
+  assert.deepEqual(C.splitForTranslation('', 450), []);
+});
