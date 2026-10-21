@@ -36,12 +36,12 @@ function esc(value) { return String(value === null || value === undefined ? '' :
 async function load() {
   const resp = await send({ type: 'GET_STATE_SUMMARY' });
   if (!resp || !resp.ok) {
-    setStatus($('sync-status'), '无法连接扩展后台，请在 chrome://extensions 里重新加载扩展。', 'bad');
+    setStatus($('file-status'), '无法连接扩展后台，请在 chrome://extensions 里重新加载扩展。', 'bad');
     return;
   }
   summary = resp;
   fillSettings();
-  renderSyncStatus();
+  loadFileStatus();
   renderGroups();
   renderRecords();
   loadStudyStats();
@@ -49,13 +49,9 @@ async function load() {
 
 function fillSettings() {
   const settings = summary.settings || {};
-  const sync = settings.sync || {};
   const trans = settings.translation || {};
   const llm = settings.llm || {};
   const custom = trans.custom || {};
-
-  $('sync-endpoint').value = sync.endpoint || 'http://127.0.0.1:17890';
-  $('sync-path').value = (summary.sync && summary.sync.dataFile) || '';
 
   $('trans-provider').value = trans.provider || 'mymemory';
   $('trans-lang').value = trans.targetLang || 'zh-CN';
@@ -70,34 +66,76 @@ function fillSettings() {
   updateProviderFields();
 }
 
-function renderSyncStatus() {
-  const el = $('sync-status');
-  const sync = (summary && summary.sync) || {};
-  if (!sync.serverUp) {
-    setStatus(el, '未连接同步服务：请双击 sync-server\\start-sync.bat 启动，然后点“测试连接”。', 'bad');
+/* ---------------- 数据文件（直接读写） ---------------- */
+
+async function loadFileStatus() {
+  const resp = await send({ type: 'GET_FILE_STATUS' });
+  renderFileStatus(resp && resp.file);
+}
+
+function renderFileStatus(file) {
+  const el = $('file-status');
+  if (!el) return;
+  if (!file || !file.configured) {
+    setStatus(el, '未选择数据文件。点“选择已有 JSON 文件”或“新建数据文件”开始。', 'bad');
     return;
   }
-  if (!sync.configured) {
-    setStatus(el, '同步服务已启动，但还没有设置数据文件路径。填写下方绝对路径后点“保存地址并连接”。', 'bad');
+  if (file.permission !== 'granted') {
+    setStatus(el, '已选择：' + (file.name || '数据文件') + '，但需要重新授权。点“重新授权”。', 'bad');
     return;
   }
-  const git = sync.git && sync.git.repo
-    ? 'git 仓库：' + sync.git.root + '（写入后自动 commit）'
-    : '数据文件不在 git 仓库内：只写文件，不会自动 commit';
-  const push = sync.git && sync.git.push;
-  let pushLine = '';
-  if (push) {
-    if (!push.enabled) {
-      pushLine = '自动 push：未开启（在 sync-server 配置 autoPush）';
-    } else if (push.last && push.last.ok === true) {
-      pushLine = '自动 push：已启用，最近成功 ' + fmtDate(push.last.at);
-    } else if (push.last && push.last.ok === false) {
-      pushLine = '自动 push：失败（' + push.last.error + '）';
+  const modified = file.lastModified ? fmtDate(new Date(file.lastModified).toISOString()) : '';
+  setStatus(el, '已连接：' + (file.name || '数据文件') + '\n大小 ' + (file.size || 0) + ' 字节' + (modified ? ' · 最后修改 ' + modified : ''), 'ok');
+}
+
+async function pickFile(saveAs) {
+  if (typeof window.showOpenFilePicker !== 'function' && typeof window.showSaveFilePicker !== 'function') {
+    window.alert('当前浏览器不支持文件选择器（File System Access API），请使用 Edge 或 Chrome。');
+    return;
+  }
+  const options = {
+    types: [{ description: 'English Notebook JSON', accept: { 'application/json': ['.json'] } }],
+  };
+  try {
+    let handle;
+    if (saveAs) {
+      if (typeof window.showSaveFilePicker !== 'function') { window.alert('当前浏览器不支持“新建文件”，请改用“选择已有文件”'); return; }
+      handle = await window.showSaveFilePicker(Object.assign({ suggestedName: 'english-notes.json' }, options));
     } else {
-      pushLine = '自动 push：已启用 → ' + push.remote + '/' + (push.branch || '当前分支');
+      const picks = await window.showOpenFilePicker(Object.assign({ multiple: false }, options));
+      handle = picks && picks[0];
     }
+    if (!handle) return;
+    const permission = await window.ENB.FileStore.ensurePermission(handle);
+    if (permission !== 'granted') {
+      setStatus($('file-status'), '没有获得该文件的读写权限，请重试。', 'bad');
+      return;
+    }
+    await window.ENB.FileStore.setHandle(handle);
+    const resp = await send({ type: 'FILE_SELECTED' });
+    renderFileStatus(resp && resp.file);
+    await load();
+  } catch (e) {
+    if (e && e.name !== 'AbortError') window.alert('选择文件失败：' + ((e && e.message) || e));
   }
-  setStatus(el, '已连接：' + sync.dataFile + '\n' + git + (pushLine ? '\n' + pushLine : ''), 'ok');
+}
+
+async function reauthorizeFile() {
+  const handle = await window.ENB.FileStore.getHandle();
+  if (!handle) { window.alert('还没有选择数据文件'); return; }
+  const permission = await window.ENB.FileStore.ensurePermission(handle);
+  if (permission !== 'granted') { window.alert('没有获得读写权限'); return; }
+  const resp = await send({ type: 'FILE_SELECTED' });
+  renderFileStatus(resp && resp.file);
+  await load();
+}
+
+async function clearFile() {
+  if (!window.confirm('断开数据文件？浏览器里的本地数据仍保留，但不会再写入这个文件。')) return;
+  try { await window.ENB.FileStore.clearHandle(); } catch (e) { /* ignore */ }
+  const resp = await send({ type: 'CLEAR_FILE' });
+  renderFileStatus(resp && resp.file);
+  await load();
 }
 
 function updateProviderFields() {
@@ -132,44 +170,6 @@ async function testAi() {
   } else {
     setStatus(el, 'AI 连接失败：' + ((resp && resp.error) || '未知错误'), 'bad');
   }
-}
-
-/* ---------------- 同步 ---------------- */
-
-async function saveSync() {
-  const endpoint = $('sync-endpoint').value.trim();
-  const path = $('sync-path').value.trim();
-  await send({ type: 'SAVE_SETTINGS', settings: { sync: { endpoint: endpoint } } });
-  if (path) {
-    const resp = await send({ type: 'SET_SYNC_PATH', dataFile: path });
-    if (!resp.ok) {
-      setStatus($('sync-status'), '连接失败：' + (resp.error || '未知错误'), 'bad');
-      return;
-    }
-  }
-  await load();
-}
-
-async function testSync() {
-  const resp = await send({ type: 'TEST_SYNC' });
-  const sync = (resp && resp.health) || summary.sync || {};
-  if (sync.serverUp) {
-    setStatus($('sync-status'), '服务在线' + (sync.configured ? '，数据文件：' + sync.dataFile : '，但尚未配置数据文件'), 'ok');
-  } else {
-    setStatus($('sync-status'), '连接失败：请确认 sync-server\\start-sync.bat 已启动。', 'bad');
-  }
-}
-
-async function syncNow() {
-  const el = $('sync-status');
-  setStatus(el, '正在同步…');
-  const resp = await send({ type: 'SYNC_NOW' });
-  if (!resp.ok) {
-    setStatus(el, '同步失败：' + (resp.error || '未知错误'), 'bad');
-    return;
-  }
-  await load();
-  setStatus($('sync-status'), '同步完成', 'ok');
 }
 
 /* ---------------- 翻译 ---------------- */
@@ -235,7 +235,7 @@ function renderGroups() {
 async function addGroup() {
   const name = $('group-name').value.trim();
   const hosts = $('group-hosts').value.split(/[,，\s]+/).filter(Boolean);
-  if (!name) { setStatus($('sync-status'), '请填写分组名称', 'bad'); return; }
+  if (!name) { setStatus($('file-status'), '请填写分组名称', 'bad'); return; }
   await send({ type: 'ADD_GROUP', name: name, hosts: hosts });
   $('group-name').value = '';
   $('group-hosts').value = '';
@@ -385,9 +385,10 @@ function opt(value, label) {
 
 /* ---------------- 事件绑定 ---------------- */
 
-$('btn-save-sync').addEventListener('click', function () { saveSync(); });
-$('btn-test-sync').addEventListener('click', function () { testSync(); });
-$('btn-sync-now').addEventListener('click', function () { syncNow(); });
+$('btn-choose-file').addEventListener('click', function () { pickFile(false); });
+$('btn-new-file').addEventListener('click', function () { pickFile(true); });
+$('btn-reauthorize').addEventListener('click', function () { reauthorizeFile(); });
+$('btn-clear-file').addEventListener('click', function () { clearFile(); });
 
 $('btn-save-trans').addEventListener('click', function () { saveTranslation(); });
 $('btn-test-trans').addEventListener('click', function () { testTranslation(); });

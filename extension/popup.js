@@ -30,13 +30,14 @@ async function init() {
   const groups = state.groups || [];
   $('stats').textContent = items.length + ' 条批注 · ' + groups.length + ' 个分组';
 
-  const sync = summary.sync || {};
-  if (!sync.serverUp) {
-    $('sync').textContent = '同步服务未启动：双击 sync-server\\start-sync.bat';
-  } else if (!sync.configured) {
-    $('sync').textContent = '服务在线，但还没设置数据文件路径（打开设置填写）';
+  const fileResp = await send({ type: 'GET_FILE_STATUS' });
+  const file = fileResp && fileResp.file;
+  if (!file || !file.configured) {
+    $('sync').textContent = '未选择数据文件：点“设置 / 选择数据文件”选择（数据会直接写入该文件）';
+  } else if (file.permission !== 'granted') {
+    $('sync').textContent = '需要重新授权：' + (file.name || '数据文件');
   } else {
-    $('sync').textContent = '已连接：' + (sync.dataFile || '');
+    $('sync').textContent = '已连接：' + (file.name || '数据文件');
   }
 }
 

@@ -20,6 +20,7 @@
 
   let pageItems = [];
   let sync = { serverUp: false, configured: false, dataFile: '' };
+  let fileStatus = { configured: false, name: '', permission: 'none' };
   let panelOpen = false;
   let setupShown = false;
   let lastHref = location.href;
@@ -65,10 +66,11 @@
     if (!resp || !resp.ok) return;
     pageItems = resp.items || [];
     if (resp.sync) sync = resp.sync;
+    if (resp.file) fileStatus = resp.file;
     renderAnnotations();
     renderPanel();
     updateEdge();
-    maybeShowSetup(resp.promptSetup);
+    maybePromptFile(resp.promptSetup);
   }
 
   function renderAnnotations() {
@@ -116,15 +118,6 @@
     qs('enb-panel-settings').addEventListener('click', function () { send({ type: 'OPEN_OPTIONS' }); });
     qs('enb-open-options').addEventListener('click', function () { send({ type: 'OPEN_OPTIONS' }); });
     qs('enb-edge').addEventListener('click', function () { togglePanel(true); });
-    qs('enb-setup-submit').addEventListener('click', submitSetup);
-    qs('enb-setup-dismiss').addEventListener('click', dismissSetup);
-    qs('enb-setup-path').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') submitSetup();
-    });
-    var setup = qs('enb-setup');
-    setup.addEventListener('click', function (e) {
-      if (e.target === setup) dismissSetup();
-    });
     /* 鼠标在批注栏上滚动时，把滚轮交给页面，卡片才能跟着正文一起动 */
     var panel = qs('enb-panel');
     panel.addEventListener('wheel', function (e) {
@@ -619,44 +612,13 @@
     } catch (e) { toast('朗读失败'); }
   }
 
-  /* ---------------- 首次同步路径设置 ---------------- */
+  /* ---------------- 数据文件提示 ---------------- */
 
-  function maybeShowSetup(promptSetup) {
-    if (setupShown || (sync && sync.configured)) return;
-    if (!promptSetup) return;
+  function maybePromptFile(prompt) {
+    if (!prompt || setupShown) return;
     setupShown = true;
-    showSetup();
-    /* 后台把「已提示过」存 chrome.storage，之后所有页面/标签页都不再自动弹 */
     send({ type: 'MARK_SETUP_PROMPTED' });
-  }
-
-  function showSetup(message) {
-    const modal = qs('enb-setup');
-    modal.hidden = false;
-    qs('enb-setup-error').textContent = message || '';
-    const input = qs('enb-setup-path');
-    if (!input.value && sync && sync.dataFile) input.value = sync.dataFile;
-    setTimeout(function () { input.focus(); }, 30);
-  }
-
-  function dismissSetup() {
-    qs('enb-setup').hidden = true;
-    send({ type: 'MARK_SETUP_PROMPTED' });
-    toast('之后可在扩展设置（Alt+M）里填写数据文件路径');
-  }
-
-  async function submitSetup() {
-    const path = qs('enb-setup-path').value.trim();
-    qs('enb-setup-error').textContent = '';
-    const resp = await send({ type: 'SET_SYNC_PATH', dataFile: path });
-    if (resp && resp.ok) {
-      sync = resp.sync || { configured: true, dataFile: resp.dataFile };
-      qs('enb-setup').hidden = true;
-      toast('已连接同步服务：' + (resp.dataFile || path));
-      reloadPageState();
-    } else {
-      qs('enb-setup-error').textContent = (resp && resp.error) || '连接失败';
-    }
+    toast('尚未选择数据文件：点扩展图标 → 设置 → 选择数据文件（数据会直接写入该文件）');
   }
 
   /* ---------------- 快捷键 / 导航 / 轮询 ---------------- */
@@ -664,7 +626,6 @@
   function installHotkeys() {
     window.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
-        if (!qs('enb-setup').hidden) { dismissSetup(); e.preventDefault(); return; }
         if (reviewOpen) { closeReviewPanel(); e.preventDefault(); return; }
         if (panelOpen) { togglePanel(false); e.preventDefault(); }
         return;
@@ -687,9 +648,9 @@
     clearInterval(tickTimer);
     tickTimer = setInterval(async function () {
       if (document.visibilityState !== 'visible') return;
-      const resp = await send({ type: 'SYNC_TICK' });
+      const resp = await send({ type: 'FILE_TICK' });
       if (resp && resp.ok) {
-        if (resp.sync) sync = resp.sync;
+        if (resp.file) fileStatus = resp.file;
         if (resp.changed) reloadPageState();
       }
     }, 6000);
@@ -771,24 +732,7 @@
       '<div id="enb-bubble-menu" class="bubble-menu" hidden>' +
         '<button data-act="review">📖 复习</button>' +
         '<button data-act="panel">📝 批注栏</button>' +
-        '<button data-act="options">⚙ 设置</button>' +
-      '</div>' +
-
-      '<div id="enb-setup" class="backdrop" hidden>' +
-        '<section class="dialog">' +
-          '<h3>连接本地同步服务</h3>' +
-          '<p class="hint">批注数据保存在私有 GitHub 数据仓库的本地克隆里，由同步服务自动 commit + push。首次使用需要两步：</p>' +
-          '<ol class="steps">' +
-            '<li>双击 <code>sync-server\\start-sync.bat</code> 启动同步服务；</li>' +
-            '<li>在下面填写私有数据仓库中该数据文件的绝对路径（文件不存在会自动创建）。</li>' +
-          '</ol>' +
-          '<input id="enb-setup-path" class="input" type="text" placeholder="例如 C:\\Users\\你\\Documents\\english-notebook-data\\english-notes.json" />' +
-          '<div id="enb-setup-error" class="error"></div>' +
-          '<div class="dialog-actions">' +
-            '<button id="enb-setup-submit" class="btn primary">连接并保存</button>' +
-            '<button id="enb-setup-dismiss" class="btn">稍后</button>' +
-          '</div>' +
-        '</section>' +
+        '<button data-act="options">⚙ 设置 / 选择数据文件</button>' +
       '</div>' +
 
       '<div id="enb-toast" class="toast" hidden><span id="enb-toast-msg"></span></div>' +

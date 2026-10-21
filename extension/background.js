@@ -2,10 +2,11 @@
  * English Notebook · background (MV3 service worker)
  * 职责：原生右键菜单、翻译、状态存储、与本地 sync-server 双向同步、消息路由。
  */
-importScripts('core.js');
+importScripts('core.js', 'filestore.js');
 
 const C = self.ENB;
 if (!C) throw new Error('core.js 加载失败');
+const FS = self.ENB.FileStore || null;
 
 const DEFAULT_SETTINGS = {
   translation: {
@@ -16,6 +17,7 @@ const DEFAULT_SETTINGS = {
   sync: {
     endpoint: 'http://127.0.0.1:17890',
     autoSync: true,
+    httpEnabled: false, // 默认使用 File System Access 直读写文件，旧 HTTP 同步服务仅作可选
   },
   /*
    * 翻译（OpenAI 兼容 / DeepSeek）与 AI 审查共用的 LLM 配置。
@@ -36,6 +38,18 @@ let syncCache = { serverUp: false, configured: false, dataFile: '', git: null, c
 let lastRevision = '';
 let pushTimer = null;
 let initPromise = null;
+/* File System Access：直接读写用户选择的 JSON 文件 */
+let fileHandle = null;
+let fileStatus = {
+  configured: false,
+  name: '',
+  permission: 'none',
+  lastModified: 0,
+  size: 0,
+  error: null,
+};
+let fileInitDone = false;
+let fileWriteTimer = null;
 /* 是否已经自动弹过「同步设置」引导；存 chrome.storage 里，全浏览器只弹一次 */
 let setupPrompted = false;
 /* 从旧版本升级上来时，直接把引导标记为已提示，避免老用户重载后又弹一次 */
@@ -92,10 +106,125 @@ async function ensureInit() {
 
 async function persistState() {
   await storageSet({ state: stateCache });
+  scheduleFileWrite();
 }
 
 async function persistSettings() {
   await storageSet({ settings: settingsCache });
+}
+
+/* ---------------- 本地文件直读写（File System Access） ---------------- */
+
+function setFileStatus(patch) {
+  fileStatus = Object.assign({}, fileStatus, patch || {});
+}
+
+async function ensureFileReady() {
+  if (fileInitDone) return;
+  fileInitDone = true;
+  if (!FS) {
+    setFileStatus({ configured: false, permission: 'unsupported', error: '当前浏览器不支持 File System Access，请使用 Edge/Chrome' });
+    return;
+  }
+  try {
+    fileHandle = await FS.getHandle();
+    if (!fileHandle) {
+      setFileStatus({ configured: false, name: '', permission: 'none', error: null });
+      return;
+    }
+    const meta = await FS.fileMeta(fileHandle);
+    const permission = await FS.permission(fileHandle);
+    setFileStatus({
+      configured: true,
+      name: (meta && meta.name) || fileHandle.name || 'data.json',
+      size: (meta && meta.size) || 0,
+      lastModified: (meta && meta.lastModified) || 0,
+      permission: permission,
+      error: null,
+    });
+    if (permission === 'granted') await readAndMergeFile();
+  } catch (e) {
+    setFileStatus({ configured: true, permission: 'error', error: String((e && e.message) || e) });
+  }
+}
+
+function contentSig(state) {
+  return JSON.stringify({ groups: state.groups || [], items: state.items || [] });
+}
+
+/** 读取文件并合并进本地状态；若本地有更新内容则写回文件。 */
+async function readAndMergeFile() {
+  if (!fileHandle || !FS) return { changed: false, status: fileStatus };
+  try {
+    const text = await FS.readFile(fileHandle);
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch (e) { /* 空文件或非法 JSON */ }
+    if (!parsed || typeof parsed !== 'object') {
+      if (!String(text || '').trim()) {
+        /* 新建的空文件：把当前状态写进去 */
+        const ok = await writeFileNow();
+        return { changed: false, initialized: ok, status: fileStatus };
+      }
+      setFileStatus({ error: '文件不是合法的 JSON，未覆盖它；请选择其他文件或先修复内容' });
+      return { changed: false, status: fileStatus };
+    }
+    const fileState = C.normalizeState(parsed);
+    const merged = C.mergeImport(stateCache, fileState, 'merge');
+    const st = merged.stats;
+    const changed = !!(st.itemsAdded || st.itemsUpdated || st.groupsAdded || st.groupsUpdated);
+    if (changed) {
+      stateCache = merged.state;
+      await storageSet({ state: stateCache });
+      notifyTabs({ type: 'STATE_UPDATED' });
+    }
+    if (contentSig(C.normalizeState(stateCache)) !== contentSig(fileState)) {
+      await writeFileNow();
+    } else {
+      const meta = await FS.fileMeta(fileHandle);
+      if (meta) {
+        setFileStatus({ name: meta.name, size: meta.size, lastModified: meta.lastModified, error: null });
+      }
+    }
+    return { changed: changed, status: fileStatus };
+  } catch (e) {
+    setFileStatus({ permission: 'error', error: String((e && e.message) || e) });
+    return { changed: false, error: fileStatus.error, status: fileStatus };
+  }
+}
+
+function scheduleFileWrite(delay) {
+  if (!fileHandle || !FS) return;
+  clearTimeout(fileWriteTimer);
+  fileWriteTimer = setTimeout(function () {
+    fileWriteTimer = null;
+    writeFileNow().catch(function () { /* ignore */ });
+  }, typeof delay === 'number' ? delay : 600);
+}
+
+async function writeFileNow() {
+  if (!fileHandle || !FS) return false;
+  const permission = await FS.permission(fileHandle);
+  setFileStatus({ permission: permission });
+  if (permission !== 'granted') {
+    setFileStatus({ error: '需要重新授权数据文件（设置页点“重新授权”）' });
+    return false;
+  }
+  const content = JSON.stringify(C.exportState(stateCache), null, 2) + '\n';
+  await FS.writeFile(fileHandle, content);
+  const meta = await FS.fileMeta(fileHandle);
+  if (meta) setFileStatus({ name: meta.name, size: meta.size, lastModified: meta.lastModified, error: null });
+  return true;
+}
+
+async function fileTick() {
+  await ensureFileReady();
+  if (!fileHandle || fileStatus.permission !== 'granted') return { changed: false, status: fileStatus };
+  const meta = await FS.fileMeta(fileHandle);
+  if (!meta) return { changed: false, status: fileStatus };
+  if (meta.lastModified && meta.lastModified !== fileStatus.lastModified) {
+    return readAndMergeFile();
+  }
+  return { changed: false, status: fileStatus };
 }
 
 function notifyTabs(message) {
@@ -120,7 +249,8 @@ function toastTab(tabId, message) {
 
 async function ensureReady() {
   await ensureInit();
-  if (!syncCache.checkedAt) {
+  await ensureFileReady();
+  if (settingsCache.sync && settingsCache.sync.httpEnabled && !syncCache.checkedAt) {
     try { await checkHealth(); } catch (e) { /* ignore */ }
   }
 }
@@ -537,7 +667,7 @@ async function pushState() {
 }
 
 function syncSoon() {
-  if (!settingsCache || !settingsCache.sync.autoSync) return;
+  if (!settingsCache || !settingsCache.sync.autoSync || !settingsCache.sync.httpEnabled) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(function () {
     pushState().catch(function () { /* ignore */ });
@@ -545,12 +675,13 @@ function syncSoon() {
 }
 
 async function syncTick() {
-  if (!settingsCache.sync.autoSync) return false;
+  if (!settingsCache.sync.autoSync || !settingsCache.sync.httpEnabled) return false;
   const changed = await pullState();
   return changed;
 }
 
 async function syncOnStart() {
+  if (!settingsCache.sync || !settingsCache.sync.httpEnabled) return;
   try {
     await checkHealth();
     if (syncCache.configured) await pullState();
@@ -604,8 +735,34 @@ async function handleMessage(message, sender) {
       ok: true,
       items: items,
       sync: syncCache,
-      promptSetup: !setupPrompted && !syncCache.configured,
+      file: fileStatus,
+      promptSetup: !setupPrompted && !fileStatus.configured,
     };
+  }
+
+  if (type === 'GET_FILE_STATUS') {
+    await ensureFileReady();
+    return { ok: true, file: fileStatus };
+  }
+
+  if (type === 'FILE_SELECTED') {
+    fileInitDone = false;
+    fileHandle = null;
+    await ensureFileReady();
+    return { ok: true, file: fileStatus };
+  }
+
+  if (type === 'CLEAR_FILE') {
+    fileHandle = null;
+    fileInitDone = true;
+    setFileStatus({ configured: false, name: '', permission: 'none', size: 0, lastModified: 0, error: null });
+    if (FS) { try { await FS.clearHandle(); } catch (e) { /* ignore */ } }
+    return { ok: true, file: fileStatus };
+  }
+
+  if (type === 'FILE_TICK') {
+    const result = await fileTick();
+    return { ok: true, changed: result.changed, file: result.status || fileStatus };
   }
 
   if (type === 'MARK_SETUP_PROMPTED') {
@@ -641,13 +798,16 @@ async function handleMessage(message, sender) {
     const result = await setSyncPath(message.dataFile);
     if (result && result.ok) {
       setupPrompted = true;
+      /* 显式配置旧 HTTP 同步服务时才启用它；默认走文件直读写 */
+      settingsCache.sync.httpEnabled = true;
+      await persistSettings();
       await storageSet({ setupPrompted: true });
     }
     return result;
   }
 
   if (type === 'GET_STATE_SUMMARY') {
-    return { ok: true, state: stateCache, settings: settingsCache, sync: syncCache };
+    return { ok: true, state: stateCache, settings: settingsCache, sync: syncCache, file: fileStatus };
   }
 
   if (type === 'SAVE_SETTINGS') {

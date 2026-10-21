@@ -96,26 +96,23 @@
 <body>
   <header>
     <h1>English Notebook</h1>
-    <span class="sub">设置与批注管理 · v0.5.0</span>
+    <span class="sub">设置与批注管理 · v0.6.0</span>
   </header>
 
   <main>
     <section>
-      <h2>本地同步（git）</h2>
-      <p class="desc">扩展通过本地服务读写私有数据仓库里的 JSON 文件；写入后自动 commit，并在 sync-server 配置开启 autoPush 时自动 push。</p>
-      <div id="sync-status" class="status">检测中…</div>
-      <div class="row">
-        <label class="field"><span>同步服务地址</span><input id="sync-endpoint" type="text" placeholder="http://127.0.0.1:17890" /></label>
-        <label class="field"><span>数据文件绝对路径</span><input id="sync-path" type="text" placeholder="例如 D:\notes\english-notes.json" /></label>
-      </div>
+      <h2>数据文件（直接读写）</h2>
+      <p class="desc">用系统文件选择器授权一个 JSON 文件，扩展直接读写它。不经过本地 HTTP 服务，也不会 git commit / push。</p>
+      <div id="file-status" class="status">检测中…</div>
       <div class="actions">
-        <button id="btn-save-sync" class="primary">保存地址并连接</button>
-        <button id="btn-test-sync">测试连接</button>
-        <button id="btn-sync-now">立即同步</button>
+        <button id="btn-choose-file" class="primary">选择已有 JSON 文件</button>
+        <button id="btn-new-file">新建数据文件</button>
+        <button id="btn-reauthorize">重新授权</button>
+        <button id="btn-clear-file" class="danger">断开文件</button>
       </div>
       <details class="help">
-        <summary>数据文件说明</summary>
-        <p class="muted">文件结构为 JSON：version / groups / items。同步服务每次写入后会尝试在数据文件所在 git 仓库自动提交；不是 git 仓库时只写文件、不提交。</p>
+        <summary>说明</summary>
+        <p class="muted">浏览器不允许扩展按任意绝对路径直接读写文件，所以首次需要你手动选择一次；之后扩展自动读写。文件放在哪由你决定（本地磁盘、OneDrive/坚果云同步目录都可以）。换文件时重新选择即可。</p>
       </details>
     </section>
 
@@ -192,6 +189,7 @@
     </section>
   </main>
 
+  <script src="filestore.js"></script>
   <script src="options.js"></script>
 </body>
 </html>
