@@ -59,6 +59,7 @@
     startTick();
     reloadPageState();
     loadStudyData();
+    initVoices();
   }
 
   async function reloadPageState() {
@@ -333,7 +334,11 @@
     const item = list[reviewIndex];
     const card = h('div', { class: 'flashcard' });
     card.appendChild(h('div', { class: 'flash-type', text: typeLabel(item.type) }));
-    card.appendChild(h('div', { class: 'flash-text', text: item.text }));
+    const flashRow = h('div', { class: 'flash-text-row' },
+      h('span', { class: 'flash-text', text: item.text }),
+      h('button', { class: 'speak-btn', text: '🔊 美音', title: '朗读（美式发音）', onclick: function () { speak(item.text); } })
+    );
+    card.appendChild(flashRow);
     if (reviewRevealed) {
       card.appendChild(h('div', { class: 'flash-meaning', text: item.meaning || '（AI 没有给释义）' }));
       if (item.note) card.appendChild(h('div', { class: 'flash-note', text: item.note }));
@@ -390,6 +395,7 @@
         list.appendChild(h('div', { class: 'ai-item' },
           h('span', { class: 'ai-type', text: typeLabel(it.type) }),
           h('span', { class: 'ai-text', text: it.text }),
+          h('button', { class: 'icon-btn ai-speak', text: '🔊', title: '朗读', onclick: function () { speak(it.text); } }),
           h('span', { class: 'ai-meaning', text: it.meaning || '' })
         ));
       });
@@ -509,20 +515,26 @@
     card.style.left = (10 + (depth - 1) * 10) + 'px';
     card.style.borderLeftColor = color.color;
 
-    const quote = h('div', { class: 'quote', text: item.text });
-    quote.style.cursor = 'pointer';
+    const quoteRow = h('div', { class: 'quote-row' });
+    const quote = h('span', { class: 'quote', text: item.text });
     quote.addEventListener('click', function () { focusItem(item.id); });
+    const speakBtn = h('button', { class: 'speak-btn', text: '🔊 美音', title: '朗读（美式发音）' });
+    speakBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      speak(item.text);
+    });
+    quoteRow.appendChild(quote);
+    quoteRow.appendChild(speakBtn);
+    card.appendChild(quoteRow);
 
     const trans = h('div', {
       class: 'trans' + (item.translation ? '' : ' muted'),
       text: item.translation || '（暂无译文，点 ✎ 补充）',
     });
-    card.appendChild(quote);
     card.appendChild(trans);
     if (item.note) card.appendChild(h('div', { class: 'note', text: item.note }));
 
     const actions = h('div', { class: 'actions' },
-      actionBtn('🔊', '朗读', function () { speak(item.text); }),
       actionBtn('✎', '编辑译文', function () { toggleEditor(item, card); }),
       actionBtn('⌖', '定位到原文', function () { focusItem(item.id); }),
       actionBtn('🧠', '我译 + AI 审查', function () { openAIReviewEditor(item, card); }),
@@ -599,17 +611,73 @@
     }, 60);
   }
 
+  /* ---------------- 美音朗读 ---------------- */
+
+  let cachedVoices = [];
+
+  function loadVoices() {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    cachedVoices = synth.getVoices() || [];
+  }
+
+  function initVoices() {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    loadVoices();
+    if (typeof synth.addEventListener === 'function') {
+      synth.addEventListener('voiceschanged', loadVoices);
+    }
+  }
+
+  /** 优先挑 en-US 的 Natural/在线语音（Edge 的 Microsoft Aria/Guy 等），退化为任意 en-US。 */
+  function pickUSVoice() {
+    const synth = window.speechSynthesis;
+    if (!synth) return null;
+    const voices = cachedVoices.length ? cachedVoices : (synth.getVoices() || []);
+    let best = null;
+    let bestScore = 0;
+    voices.forEach(function (voice) {
+      const lang = String(voice.lang || '').toLowerCase();
+      const name = String(voice.name || '').toLowerCase();
+      let score = 0;
+      if (lang === 'en-us') score += 100;
+      else if (lang.indexOf('en-us') === 0) score += 90;
+      else if (lang.indexOf('en') === 0) score += 10;
+      if (name.indexOf('natural') !== -1) score += 60;
+      if (name.indexOf('online') !== -1) score += 20;
+      if (name.indexOf('google us english') !== -1) score += 40;
+      if (name.indexOf('aria') !== -1 || name.indexOf('guy') !== -1 || name.indexOf('jenny') !== -1 ||
+          name.indexOf('ana') !== -1 || name.indexOf('michelle') !== -1) score += 30;
+      if (voice.localService === false) score += 5;
+      if (voice.default) score += 2;
+      if (score > bestScore) { bestScore = score; best = voice; }
+    });
+    return bestScore > 0 ? best : null;
+  }
+
   function speak(text) {
     const synth = window.speechSynthesis;
     const Utter = window.SpeechSynthesisUtterance;
     if (!synth || !Utter) { toast('当前浏览器不支持朗读'); return; }
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!clean) return;
     try {
       synth.cancel();
-      const u = new Utter(text);
-      u.lang = 'en-US';
-      u.rate = 0.9;
+      const u = new Utter(clean);
+      const voice = pickUSVoice();
+      if (voice) {
+        u.voice = voice;
+        u.lang = voice.lang || 'en-US';
+      } else {
+        u.lang = 'en-US';
+      }
+      u.rate = 0.92;
+      u.pitch = 1;
       synth.speak(u);
-    } catch (e) { toast('朗读失败'); }
+    } catch (e) {
+      toast('朗读失败');
+    }
   }
 
   /* ---------------- 数据文件提示 ---------------- */
@@ -804,7 +872,8 @@
     '.review-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px; }',
     '.flashcard { border: 1px solid var(--enb-border); border-radius: 10px; padding: 14px; }',
     '.flash-type { color: var(--enb-muted); font-size: 12px; }',
-    '.flash-text { font-size: 20px; font-weight: 600; margin: 6px 0 12px; word-break: break-word; }',
+    '.flash-text-row { display: flex; align-items: center; gap: 8px; margin: 6px 0 12px; }',
+    '.flash-text { flex: 1; font-size: 20px; font-weight: 600; word-break: break-word; }',
     '.flash-meaning { font-size: 14px; margin-bottom: 6px; }',
     '.flash-note { color: var(--enb-muted); font-size: 12px; }',
     '.flash-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }',
@@ -822,6 +891,7 @@
     '.ai-type { color: var(--enb-muted); border: 1px solid var(--enb-border); border-radius: 4px; padding: 0 4px; font-size: 10px; }',
     '.ai-item .ai-text { border: none; background: transparent; padding: 0; min-height: 0; width: auto; font-size: 12px; font-weight: 600; }',
     '.ai-meaning { color: var(--enb-muted); }',
+    '.ai-speak { font-size: 11px; padding: 1px 4px; }',
     '.backdrop { z-index: 8; }',
     '.toast { z-index: 9; }',
     '.panel {',
@@ -838,7 +908,10 @@
     '.list { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }',
     '.card { position: absolute; left: 10px; right: 10px; will-change: top; background: var(--enb-bg); border: 1px solid var(--enb-border); border-left: 3px solid var(--enb-accent); border-radius: 8px; padding: 8px 10px; }',
     '.card.active { box-shadow: 0 0 0 2px var(--enb-accent-soft); }',
-    '.quote { font-size: 13px; word-break: break-word; margin-bottom: 4px; }',
+    '.quote-row { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 4px; }',
+    '.quote { flex: 1; font-size: 13px; word-break: break-word; cursor: pointer; }',
+    '.speak-btn { flex: none; border: 1px solid var(--enb-border); background: transparent; color: var(--enb-accent); border-radius: 6px; padding: 1px 6px; font-size: 11px; line-height: 1.6; white-space: nowrap; }',
+    '.speak-btn:hover { background: var(--enb-accent-soft); }',
     '.trans { font-size: 13px; color: var(--enb-text); white-space: pre-wrap; word-break: break-word; }',
     '.trans.muted { color: var(--enb-muted); font-size: 12px; }',
     '.note { color: var(--enb-muted); font-size: 12px; margin-top: 2px; white-space: pre-wrap; }',

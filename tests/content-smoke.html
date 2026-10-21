@@ -44,6 +44,25 @@
     };
   </script>
 
+  <script>
+    window.__spoken = [];
+    var fakeSynth = {
+      getVoices: function () {
+        return [
+          { name: 'Microsoft Aria Online (Natural) - English (United States)', lang: 'en-US', localService: false, default: true },
+          { name: 'Microsoft Huihui - Chinese (Simplified)', lang: 'zh-CN', localService: true },
+        ];
+      },
+      cancel: function () {},
+      speak: function (u) { window.__spoken.push(u); },
+    };
+    Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: fakeSynth });
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+      configurable: true,
+      value: function (text) { this.text = text; },
+    });
+  </script>
+
   <script src="../extension/core.js"></script>
   <script src="../extension/render.js"></script>
   <script src="../extension/content.js"></script>
@@ -77,7 +96,7 @@
           push('shadow', !!shadow);
           push('ready', document.documentElement.getAttribute('data-enb'));
           push('count', document.documentElement.getAttribute('data-enb-count'));
-          push('setupHidden', !!(shadow && shadow.querySelector('#enb-setup').hidden));
+          push('setupGone', !shadow.querySelector('#enb-setup'));
           push('panelHiddenInitially', !!(shadow && shadow.querySelector('#enb-panel').hidden));
           push('edgeVisible', !!(shadow && !shadow.querySelector('#enb-edge').hidden));
           push('spans', document.querySelectorAll('.enb-ann').length);
@@ -89,6 +108,16 @@
             push('cards', shadow.querySelectorAll('.card').length);
             var cards = shadow.querySelectorAll('.card');
             push('nestedIndent', cards.length > 1 ? cards[1].style.left : '');
+
+            // 美音朗读按钮
+            var speakBtn = shadow.querySelector('.card .speak-btn');
+            push('speakBtn', !!speakBtn);
+            if (speakBtn) speakBtn.click();
+            push('spokenCount', window.__spoken ? window.__spoken.length : 0);
+            var utt = window.__spoken && window.__spoken[0];
+            push('spokenLang', utt && utt.lang);
+            push('spokenVoiceLang', utt && utt.voice && utt.voice.lang);
+            push('spokenRate', utt && utt.rate);
 
             // 后台消息：toast
             if (window.__onMessage) {
