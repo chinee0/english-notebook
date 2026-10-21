@@ -51,22 +51,17 @@ function fillSettings() {
   const settings = summary.settings || {};
   const sync = settings.sync || {};
   const trans = settings.translation || {};
-  const openai = trans.openai || {};
+  const llm = settings.llm || {};
   const custom = trans.custom || {};
 
   $('sync-endpoint').value = sync.endpoint || 'http://127.0.0.1:17890';
   $('sync-path').value = (summary.sync && summary.sync.dataFile) || '';
 
-  const ai = settings.ai || {};
-  $('ai-base').value = ai.baseUrl || 'https://api.deepseek.com';
-  $('ai-model').value = ai.model || 'deepseek-chat';
-  $('ai-key').value = ai.apiKey || '';
-
   $('trans-provider').value = trans.provider || 'mymemory';
   $('trans-lang').value = trans.targetLang || 'zh-CN';
-  $('openai-base').value = openai.baseUrl || 'https://api.openai.com/v1';
-  $('openai-model').value = openai.model || 'gpt-4o-mini';
-  $('openai-key').value = openai.apiKey || '';
+  $('openai-base').value = llm.baseUrl || 'https://api.deepseek.com';
+  $('openai-model').value = llm.model || 'deepseek-chat';
+  $('openai-key').value = llm.apiKey || '';
   $('custom-url').value = custom.url || '';
   $('custom-method').value = custom.method || 'GET';
   $('custom-result').value = custom.resultPath || 'translation';
@@ -94,11 +89,10 @@ function renderSyncStatus() {
 
 function updateProviderFields() {
   const provider = $('trans-provider').value;
-  $('openai-fields').style.display = provider === 'openai' ? 'grid' : 'none';
   $('custom-fields').style.display = provider === 'custom' ? 'grid' : 'none';
 }
 
-/* ---------------- DeepSeek AI ---------------- */
+/* ---------------- 学习条目 / 共用 LLM ---------------- */
 
 async function loadStudyStats() {
   const resp = await send({ type: 'GET_STUDY_DATA' });
@@ -107,29 +101,23 @@ async function loadStudyStats() {
   if (el) el.textContent = '本地学习条目：' + items.length + ' 条（仅本机保存，不参与 git 同步）';
 }
 
-async function saveAi() {
-  const ai = {
-    baseUrl: $('ai-base').value.trim() || 'https://api.deepseek.com',
-    model: $('ai-model').value.trim() || 'deepseek-chat',
-    apiKey: $('ai-key').value.trim(),
+function currentLlm() {
+  return {
+    baseUrl: $('openai-base').value.trim() || 'https://api.deepseek.com',
+    model: $('openai-model').value.trim() || 'deepseek-chat',
+    apiKey: $('openai-key').value.trim(),
   };
-  const resp = await send({ type: 'SAVE_SETTINGS', settings: { ai: ai } });
-  if (resp && resp.ok) {
-    setStatus($('ai-test-result'), 'AI 配置已保存（仅本机，不会上传 git）', 'ok');
-    await load();
-  } else {
-    setStatus($('ai-test-result'), '保存失败：' + ((resp && resp.error) || '未知错误'), 'bad');
-  }
 }
 
 async function testAi() {
-  const el = $('ai-test-result');
-  setStatus(el, '正在请求 DeepSeek…');
+  const el = $('trans-test-result');
+  setStatus(el, '正在保存配置并请求 AI 接口…');
+  await send({ type: 'SAVE_SETTINGS', settings: { llm: currentLlm() } });
   const resp = await send({ type: 'TEST_AI' });
   if (resp && resp.ok) {
-    setStatus(el, '连接成功，模型回复：' + resp.text, 'ok');
+    setStatus(el, 'AI 连接成功，模型回复：' + resp.text, 'ok');
   } else {
-    setStatus(el, '连接失败：' + ((resp && resp.error) || '未知错误'), 'bad');
+    setStatus(el, 'AI 连接失败：' + ((resp && resp.error) || '未知错误'), 'bad');
   }
 }
 
@@ -179,11 +167,6 @@ async function saveTranslation() {
     translation: {
       provider: provider,
       targetLang: $('trans-lang').value.trim() || 'zh-CN',
-      openai: {
-        baseUrl: $('openai-base').value.trim(),
-        apiKey: $('openai-key').value.trim(),
-        model: $('openai-model').value.trim(),
-      },
       custom: {
         url: $('custom-url').value.trim(),
         method: $('custom-method').value,
@@ -192,11 +175,12 @@ async function saveTranslation() {
         resultPath: $('custom-result').value.trim(),
       },
     },
+    llm: currentLlm(),
   };
   const resp = await send({ type: 'SAVE_SETTINGS', settings: settings });
   if (resp.ok) {
     await load();
-    setStatus($('trans-test-result'), '翻译设置已保存', 'ok');
+    setStatus($('trans-test-result'), '翻译 / AI 共用配置已保存（API Key 仅本机）', 'ok');
   }
 }
 
@@ -394,10 +378,8 @@ $('btn-sync-now').addEventListener('click', function () { syncNow(); });
 
 $('btn-save-trans').addEventListener('click', function () { saveTranslation(); });
 $('btn-test-trans').addEventListener('click', function () { testTranslation(); });
-$('trans-provider').addEventListener('change', updateProviderFields);
-
-$('btn-save-ai').addEventListener('click', function () { saveAi(); });
 $('btn-test-ai').addEventListener('click', function () { testAi(); });
+$('trans-provider').addEventListener('change', updateProviderFields);
 
 $('btn-add-group').addEventListener('click', function () { addGroup(); });
 

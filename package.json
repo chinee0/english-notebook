@@ -1,6 +1,6 @@
 {
   "name": "english-notebook",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "浏览器扩展：选中英文右键翻译并记录，Word 式批注栏，彩色嵌套波浪线，按页面绑定，本地 git 自动同步。",
   "scripts": {

@@ -48,6 +48,7 @@
     main { max-width: 1060px; margin: 0 auto; padding: 20px 24px 60px; display: flex; flex-direction: column; gap: 16px; }
     section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
     section h2 { margin: 0 0 4px; font-size: 15px; }
+    section .subhead { margin: 16px 0 6px; font-size: 13px; }
     section .desc { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
     label.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
     label.field > span { color: var(--muted); font-size: 12px; }
@@ -95,7 +96,7 @@
 <body>
   <header>
     <h1>English Notebook</h1>
-    <span class="sub">设置与批注管理 · v0.4.0</span>
+    <span class="sub">设置与批注管理 · v0.4.1</span>
   </header>
 
   <main>
@@ -120,13 +121,13 @@
 
     <section>
       <h2>翻译 Provider</h2>
-      <p class="desc">默认使用免费 MyMemory；也可以配置 OpenAI 兼容接口或任意自定义 HTTP 接口。</p>
+      <p class="desc">默认使用免费 MyMemory；OpenAI 兼容接口（含 DeepSeek）与「我译 + AI 审查」共用同一份 LLM 配置。</p>
       <div class="row">
         <label class="field"><span>Provider</span>
           <select id="trans-provider">
             <option value="mymemory">MyMemory（免费，无需 Key）</option>
             <option value="google">Google Translate 免 Key 接口（国内可能不可用）</option>
-            <option value="openai">OpenAI 兼容接口（可填中转 baseURL）</option>
+            <option value="openai">OpenAI 兼容 / DeepSeek（共用配置）</option>
             <option value="custom">自定义 HTTP 接口</option>
             <option value="none">不自动翻译</option>
           </select>
@@ -134,12 +135,15 @@
         <label class="field"><span>目标语言</span><input id="trans-lang" type="text" placeholder="zh-CN" /></label>
       </div>
 
+      <h3 class="subhead">共用 LLM 配置（OpenAI 兼容 / DeepSeek）</h3>
+      <p class="desc">这份配置同时用于两件事：① Provider 选「OpenAI 兼容 / DeepSeek」时的翻译；② 批注卡片的「我译 + AI 审查」。翻译选 MyMemory 时，它只用于 AI 审查。</p>
       <div id="openai-fields">
         <div class="row">
-          <label class="field"><span>Base URL</span><input id="openai-base" type="text" placeholder="https://api.openai.com/v1" /></label>
-          <label class="field"><span>模型</span><input id="openai-model" type="text" placeholder="gpt-4o-mini" /></label>
+          <label class="field"><span>Base URL</span><input id="openai-base" type="text" placeholder="https://api.deepseek.com" /></label>
+          <label class="field"><span>模型</span><input id="openai-model" type="text" placeholder="deepseek-chat" /></label>
         </div>
-        <label class="field"><span>API Key</span><input id="openai-key" type="password" placeholder="sk-..." /></label>
+        <label class="field"><span>API Key（只存本机扩展存储，不上传 git）</span><input id="openai-key" type="password" placeholder="sk-..." /></label>
+        <p class="muted">DeepSeek 就填这份配置：Base URL <code>https://api.deepseek.com</code>，模型 <code>deepseek-chat</code>。</p>
       </div>
 
       <div id="custom-fields">
@@ -155,25 +159,11 @@
       </div>
 
       <div class="actions">
-        <button id="btn-save-trans" class="primary">保存翻译设置</button>
+        <button id="btn-save-trans" class="primary">保存翻译 / AI 配置</button>
         <button id="btn-test-trans">测试翻译</button>
+        <button id="btn-test-ai">测试 AI 审查</button>
       </div>
       <div id="trans-test-result" class="status" hidden></div>
-    </section>
-
-    <section>
-      <h2>DeepSeek AI 审查</h2>
-      <p class="desc">批注卡片里的「我译 + AI 审查」使用。<b>API Key 只保存在本机扩展存储</b>，不会写入同步 JSON，也不会进 git。</p>
-      <div class="row">
-        <label class="field"><span>Base URL</span><input id="ai-base" type="text" placeholder="https://api.deepseek.com" /></label>
-        <label class="field"><span>模型</span><input id="ai-model" type="text" placeholder="deepseek-chat" /></label>
-      </div>
-      <label class="field"><span>DeepSeek API Key</span><input id="ai-key" type="password" placeholder="sk-..." /></label>
-      <div class="actions">
-        <button id="btn-save-ai" class="primary">保存 AI 配置</button>
-        <button id="btn-test-ai">测试连接</button>
-      </div>
-      <div id="ai-test-result" class="status" hidden></div>
       <p class="muted" id="study-stats" style="margin-top:10px;"></p>
     </section>
 

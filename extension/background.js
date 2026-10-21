@@ -11,15 +11,17 @@ const DEFAULT_SETTINGS = {
   translation: {
     provider: 'mymemory', // mymemory | google | openai | custom | none
     targetLang: 'zh-CN',
-    openai: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' },
     custom: { url: '', method: 'GET', headers: '', bodyTemplate: '', resultPath: 'translation' },
   },
   sync: {
     endpoint: 'http://127.0.0.1:17890',
     autoSync: true,
   },
-  /* DeepSeek AI 审查配置：只存在 chrome.storage.local，不参与 git 同步 */
-  ai: {
+  /*
+   * 翻译（OpenAI 兼容 / DeepSeek）与 AI 审查共用的 LLM 配置。
+   * 只存在 chrome.storage.local，不参与 git 同步。
+   */
+  llm: {
     baseUrl: 'https://api.deepseek.com',
     apiKey: '',
     model: 'deepseek-chat',
@@ -65,7 +67,15 @@ async function ensureInit() {
   initPromise = (async function () {
     const data = await storageGet(['state', 'settings', 'setupPrompted', 'studyReviews', 'studyItems']);
     stateCache = C.normalizeState(data.state);
-    settingsCache = deepDefaults(data.settings, DEFAULT_SETTINGS);
+    const rawSettings = data.settings || {};
+    settingsCache = deepDefaults(rawSettings, DEFAULT_SETTINGS);
+    /* 兼容旧版：把独立的 ai 配置或 translation.openai 迁移到共用 llm */
+    if (!rawSettings.llm) {
+      const legacy = rawSettings.ai || (rawSettings.translation && rawSettings.translation.openai);
+      if (legacy) settingsCache.llm = deepDefaults(legacy, DEFAULT_SETTINGS.llm);
+    }
+    delete settingsCache.ai;
+    if (settingsCache.translation) delete settingsCache.translation.openai;
     setupPrompted = !!data.setupPrompted || forceSetupPrompted;
     studyReviews = data.studyReviews && typeof data.studyReviews === 'object' ? data.studyReviews : {};
     studyItems = Array.isArray(data.studyItems) ? data.studyItems : [];
@@ -313,14 +323,15 @@ async function translateText(text) {
     }
 
     if (provider === 'openai') {
-      const o = cfg.openai || {};
-      const base = String(o.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
-      if (!o.apiKey) return { ok: false, error: '未填写 OpenAI 兼容 API Key' };
+      /* 与 AI 审查共用同一份 LLM 配置（DeepSeek 也走这里） */
+      const o = settingsCache.llm || {};
+      const base = String(o.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
+      if (!o.apiKey) return { ok: false, error: '未填写共用 LLM 配置的 API Key（设置页 → OpenAI 兼容 / DeepSeek）' };
       const r = await fetchJson(base + '/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + o.apiKey },
         body: JSON.stringify({
-          model: o.model || 'gpt-4o-mini',
+          model: o.model || 'deepseek-chat',
           temperature: 0,
           messages: [
             { role: 'system', content: '你是翻译引擎。把用户给出的英文翻译成简体中文，只输出译文，不要解释，不要加引号。' },
@@ -330,7 +341,7 @@ async function translateText(text) {
       }, 20000);
       const t = r.data && r.data.choices && r.data.choices[0] &&
         r.data.choices[0].message && r.data.choices[0].message.content;
-      if (!t) return { ok: false, error: 'OpenAI 兼容接口没有返回译文（检查 baseUrl/key/model）' };
+      if (!t) return { ok: false, error: 'OpenAI 兼容 / DeepSeek 接口没有返回译文（检查 baseUrl/key/model）' };
       return { ok: true, text: String(t).trim(), provider: provider };
     }
 
@@ -371,14 +382,14 @@ async function persistStudy() {
 }
 
 async function callDeepSeek(messages) {
-  const ai = settingsCache.ai || {};
-  if (!ai.apiKey) return { ok: false, error: '请先在扩展设置页填写 DeepSeek API Key' };
-  const base = String(ai.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
+  const llm = settingsCache.llm || {};
+  if (!llm.apiKey) return { ok: false, error: '请先在设置页填写共用 LLM 配置的 API Key（OpenAI 兼容 / DeepSeek）' };
+  const base = String(llm.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
   const r = await fetchJson(base + '/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ai.apiKey },
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + llm.apiKey },
     body: JSON.stringify({
-      model: ai.model || 'deepseek-chat',
+      model: llm.model || 'deepseek-chat',
       temperature: 0.2,
       messages: messages,
       response_format: { type: 'json_object' },
@@ -389,11 +400,11 @@ async function callDeepSeek(messages) {
     if (r.data && r.data.error) {
       msg = typeof r.data.error === 'string' ? r.data.error : (r.data.error.message || JSON.stringify(r.data.error));
     }
-    return { ok: false, error: 'DeepSeek 接口错误：' + msg };
+    return { ok: false, error: 'AI 接口错误：' + msg };
   }
   const content = r.data && r.data.choices && r.data.choices[0] &&
     r.data.choices[0].message && r.data.choices[0].message.content;
-  if (!content) return { ok: false, error: 'DeepSeek 没有返回内容' };
+  if (!content) return { ok: false, error: 'AI 接口没有返回内容' };
   return { ok: true, text: String(content).trim() };
 }
 
@@ -402,8 +413,8 @@ async function reviewTranslation(payload) {
   const userTranslation = C.cleanText(payload.userTranslation, 2000);
   if (!text) return { ok: false, error: '原文为空' };
   if (!userTranslation) return { ok: false, error: '请先写下你的翻译' };
-  if (!settingsCache.ai || !settingsCache.ai.apiKey) {
-    return { ok: false, error: '请先在扩展设置页填写 DeepSeek API Key' };
+  if (!settingsCache.llm || !settingsCache.llm.apiKey) {
+    return { ok: false, error: '请先在设置页填写共用 LLM 配置的 API Key（OpenAI 兼容 / DeepSeek）' };
   }
 
   const messages = [
