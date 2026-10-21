@@ -4,3 +4,6 @@ Thumbs.db
 
 # 本地同步服务配置（包含数据文件绝对路径，每台机器不同，勿提交）
 sync-server/sync-config.json
+
+# 学习数据放在独立的私有数据仓库，本地 data/ 不提交
+/data/

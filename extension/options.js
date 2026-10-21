@@ -84,7 +84,20 @@ function renderSyncStatus() {
   const git = sync.git && sync.git.repo
     ? 'git 仓库：' + sync.git.root + '（写入后自动 commit）'
     : '数据文件不在 git 仓库内：只写文件，不会自动 commit';
-  setStatus(el, '已连接：' + sync.dataFile + '\n' + git, 'ok');
+  const push = sync.git && sync.git.push;
+  let pushLine = '';
+  if (push) {
+    if (!push.enabled) {
+      pushLine = '自动 push：未开启（在 sync-server 配置 autoPush）';
+    } else if (push.last && push.last.ok === true) {
+      pushLine = '自动 push：已启用，最近成功 ' + fmtDate(push.last.at);
+    } else if (push.last && push.last.ok === false) {
+      pushLine = '自动 push：失败（' + push.last.error + '）';
+    } else {
+      pushLine = '自动 push：已启用 → ' + push.remote + '/' + (push.branch || '当前分支');
+    }
+  }
+  setStatus(el, '已连接：' + sync.dataFile + '\n' + git + (pushLine ? '\n' + pushLine : ''), 'ok');
 }
 
 function updateProviderFields() {

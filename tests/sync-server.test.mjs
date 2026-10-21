@@ -4,7 +4,8 @@
  *
  * 覆盖：未配置时 409 / CORS / 404；POST /config 校验与持久化；
  * GET/PUT /state 合并与落盘；revision 随外部改动变化；
- * debounce 后自动 git commit（临时 git 仓库）。
+ * debounce 后自动 git commit（临时 git 仓库）；autoPush 自动 push 到临时 bare 远程仓库；
+ * push 失败静默降级；close() flush 未执行的 commit+push。
  * 每个用例使用独立的临时目录与随机端口，结束后关闭服务器并清理目录。
  */
 
@@ -109,6 +110,40 @@ async function waitForGitLog(repoDir, dataFile, minCount, timeoutMs) {
   throw new Error('等待 git 自动提交超时，当前提交: ' + JSON.stringify(last));
 }
 
+/** 通用轮询等待：check() 返回真值即结束，超时抛错。 */
+async function waitFor(check, timeoutMs, label) {
+  const deadline = Date.now() + (timeoutMs || 10000);
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const value = await check();
+      if (value) return value;
+    } catch (err) {
+      lastError = err;
+    }
+    await sleep(50);
+  }
+  throw new Error('等待超时' + (label ? '（' + label + '）' : '') + (lastError ? ': ' + lastError.message : ''));
+}
+
+/** 在临时目录里初始化一个带本地 bare origin 的工作仓库 + 数据文件绝对路径。 */
+async function createRepoWithBareOrigin(parentDir, options) {
+  options = options || {};
+  const bareDir = path.join(parentDir, 'origin.git');
+  const repoDir = path.join(parentDir, 'repo');
+  assert.equal((await run('git', ['init', '--bare', '-q', bareDir])).code, 0);
+  assert.equal((await run('git', ['init', '-q', repoDir])).code, 0);
+  assert.equal((await run('git', ['config', 'user.name', 'English Notebook Test'], repoDir)).code, 0);
+  assert.equal((await run('git', ['config', 'user.email', 'test@example.com'], repoDir)).code, 0);
+  assert.equal((await run('git', ['config', 'commit.gpgsign', 'false'], repoDir)).code, 0);
+  if (options.addOrigin !== false) {
+    assert.equal((await run('git', ['remote', 'add', options.remote || 'origin', bareDir.replace(/\\/g, '/')], repoDir)).code, 0);
+  }
+  const dataDir = path.join(repoDir, 'data');
+  await fs.mkdir(dataDir);
+  return { bareDir: bareDir, repoDir: repoDir, dataFile: path.join(dataDir, 'notes.json') };
+}
+
 /* ------------------------------------------------------------------ */
 
 test('未配置时 /health 字段正确，/state 返回 409，并支持 CORS / 404 / 405', async function (t) {
@@ -123,12 +158,29 @@ test('未配置时 /health 字段正确，/state 返回 409，并支持 CORS / 4
     version: 1,
     configured: false,
     dataFile: null,
-    git: { repo: false, root: null },
+    git: {
+      repo: false,
+      root: null,
+      push: {
+        enabled: false,
+        remote: 'origin',
+        branch: null,
+        last: { ok: null, at: null, error: null },
+      },
+    },
   });
 
   const config = await api(ctx.base, 'GET', '/config');
   assert.equal(config.status, 200);
-  assert.deepEqual(config.json, { dataFile: null, autoCommit: false, debounceMs: 25 });
+  assert.deepEqual(config.json, {
+    dataFile: null,
+    autoCommit: false,
+    debounceMs: 25,
+    autoPush: false,
+    remote: 'origin',
+    branch: null,
+    proxy: null,
+  });
 
   const getState = await api(ctx.base, 'GET', '/state');
   assert.equal(getState.status, 409);
@@ -189,7 +241,14 @@ test('POST /config 校验绝对路径与父目录，创建空数据文件并持�
   assert.equal(created.json.ok, true);
   assert.equal(created.json.dataFile, dataFile);
   assert.equal(created.json.created, true);
-  assert.deepEqual(created.json.git, { repo: false, root: null });
+  assert.equal(created.json.git.repo, false);
+  assert.equal(created.json.git.root, null);
+  assert.deepEqual(created.json.git.push, {
+    enabled: false,
+    remote: 'origin',
+    branch: null,
+    last: { ok: null, at: null, error: null },
+  });
 
   // 文件不存在时创建空状态（规范化 v2 结构）
   const onDisk = JSON.parse(await fs.readFile(dataFile, 'utf8'));
@@ -202,6 +261,10 @@ test('POST /config 校验绝对路径与父目录，创建空数据文件并持�
   assert.equal(saved.dataFile, dataFile);
   assert.equal(saved.autoCommit, false);
   assert.equal(saved.debounceMs, 20);
+  assert.equal(saved.autoPush, false);
+  assert.equal(saved.remote, 'origin');
+  assert.equal(saved.branch, null);
+  assert.equal(saved.proxy, null);
 
   // 已存在的文件不重复创建
   const again = await api(ctx.base, 'POST', '/config', { dataFile: dataFile });
@@ -232,7 +295,7 @@ test('POST /config 校验绝对路径与父目录，创建空数据文件并持�
   assert.equal(restartedHealth.json.dataFile, dataFile);
 });
 
-test('createSyncServer({dataFile}) 显式参数优先于持久化配置', async function (t) {
+test('createSyncServer 显式参数优先于持久化配置', async function (t) {
   const root = await makeTempDir();
   t.after(async function () { await cleanupDir(root); });
 
@@ -247,9 +310,22 @@ test('createSyncServer({dataFile}) 显式参数优先于持久化配置', async 
     dataFile: persistedFile,
     autoCommit: true,
     debounceMs: 4000,
+    autoPush: false,
+    remote: 'saved-origin',
+    branch: 'saved-branch',
+    proxy: 'http://127.0.0.1:7000',
   }), 'utf8');
 
-  const server = createSyncServer({ dataFile: explicitFile, port: 0, autoCommit: false, configFile: configFile });
+  const server = createSyncServer({
+    dataFile: explicitFile,
+    port: 0,
+    autoCommit: false,
+    autoPush: true,
+    remote: 'explicit-origin',
+    branch: 'explicit-branch',
+    proxy: 'http://127.0.0.1:7897',
+    configFile: configFile,
+  });
   const info = await server.listen();
   t.after(async function () { await server.close().catch(function () {}); });
 
@@ -257,10 +333,130 @@ test('createSyncServer({dataFile}) 显式参数优先于持久化配置', async 
   assert.equal(config.json.dataFile, explicitFile);
   assert.equal(config.json.autoCommit, false);
   assert.equal(config.json.debounceMs, 4000, '未显式传入的 debounceMs 应沿用配置文件');
+  assert.equal(config.json.autoPush, true);
+  assert.equal(config.json.remote, 'explicit-origin');
+  assert.equal(config.json.branch, 'explicit-branch');
+  assert.equal(config.json.proxy, 'http://127.0.0.1:7897');
 
   const health = await api(info.url, 'GET', '/health');
   assert.equal(health.json.configured, true);
   assert.equal(health.json.dataFile, explicitFile);
+  assert.equal(health.json.git.push.enabled, false, 'autoCommit=false 时 push 不生效');
+  assert.equal(health.json.git.push.remote, 'explicit-origin');
+  assert.equal(health.json.git.push.branch, 'explicit-branch');
+});
+
+test('POST /config 支持 autoPush/remote/branch/proxy：类型校验、部分更新、持久化与重启恢复', async function (t) {
+  const ctx = await startServer(t, { autoCommit: false, debounceMs: 20 });
+  const dataDir = path.join(ctx.root, 'data');
+  await fs.mkdir(dataDir);
+  const dataFile = path.join(dataDir, 'notes.json');
+
+  await api(ctx.base, 'POST', '/config', { dataFile: dataFile });
+
+  // 默认值
+  const defaults = await api(ctx.base, 'GET', '/config');
+  assert.deepEqual(defaults.json, {
+    dataFile: dataFile,
+    autoCommit: false,
+    debounceMs: 20,
+    autoPush: false,
+    remote: 'origin',
+    branch: null,
+    proxy: null,
+  });
+  const health0 = await api(ctx.base, 'GET', '/health');
+  assert.deepEqual(health0.json.git.push, {
+    enabled: false,
+    remote: 'origin',
+    branch: null,
+    last: { ok: null, at: null, error: null },
+  });
+
+  // 类型校验
+  const badCases = [
+    [{ dataFile: dataFile, autoPush: 'true' }, 'invalid_auto_push'],
+    [{ dataFile: dataFile, remote: '' }, 'invalid_remote'],
+    [{ dataFile: dataFile, remote: 42 }, 'invalid_remote'],
+    [{ dataFile: dataFile, remote: '-origin' }, 'invalid_remote'],
+    [{ dataFile: dataFile, branch: 123 }, 'invalid_branch'],
+    [{ dataFile: dataFile, branch: '' }, 'invalid_branch'],
+    [{ dataFile: dataFile, branch: '-main' }, 'invalid_branch'],
+    [{ dataFile: dataFile, proxy: 42 }, 'invalid_proxy'],
+    [{ dataFile: dataFile, proxy: '' }, 'invalid_proxy'],
+  ];
+  for (const entry of badCases) {
+    const res = await api(ctx.base, 'POST', '/config', entry[0]);
+    assert.equal(res.status, 400, '应拒绝: ' + JSON.stringify(entry[0]));
+    assert.equal(res.json.ok, false);
+    assert.equal(res.json.error, entry[1], '错误码: ' + JSON.stringify(entry[0]));
+  }
+
+  // 设置新字段（autoCommit=false 时 push 不启用，但配置应如实返回）
+  const updated = await api(ctx.base, 'POST', '/config', {
+    dataFile: dataFile,
+    autoPush: true,
+    remote: 'upstream',
+    branch: 'main',
+    proxy: 'http://127.0.0.1:7897',
+  });
+  assert.equal(updated.status, 200);
+  const cfgAfter = await api(ctx.base, 'GET', '/config');
+  assert.deepEqual(cfgAfter.json, {
+    dataFile: dataFile,
+    autoCommit: false,
+    debounceMs: 20,
+    autoPush: true,
+    remote: 'upstream',
+    branch: 'main',
+    proxy: 'http://127.0.0.1:7897',
+  });
+  const healthAfter = await api(ctx.base, 'GET', '/health');
+  assert.equal(healthAfter.json.git.push.enabled, false);
+  assert.equal(healthAfter.json.git.push.remote, 'upstream');
+  assert.equal(healthAfter.json.git.push.branch, 'main');
+
+  // 只传 dataFile 时保留已有配置（扩展只传 dataFile 的兼容性）
+  const partial = await api(ctx.base, 'POST', '/config', { dataFile: dataFile });
+  assert.equal(partial.status, 200);
+  assert.deepEqual((await api(ctx.base, 'GET', '/config')).json, {
+    dataFile: dataFile,
+    autoCommit: false,
+    debounceMs: 20,
+    autoPush: true,
+    remote: 'upstream',
+    branch: 'main',
+    proxy: 'http://127.0.0.1:7897',
+  });
+
+  // autoCommit 打开后 push 状态变为 enabled
+  await api(ctx.base, 'POST', '/config', { dataFile: dataFile, autoCommit: true });
+  assert.equal((await api(ctx.base, 'GET', '/health')).json.git.push.enabled, true);
+
+  // null 可以清空 branch / proxy
+  await api(ctx.base, 'POST', '/config', { dataFile: dataFile, branch: null, proxy: null });
+  const cleared = await api(ctx.base, 'GET', '/config');
+  assert.equal(cleared.json.branch, null);
+  assert.equal(cleared.json.proxy, null);
+
+  // 持久化到 sync-config.json
+  const saved = JSON.parse(await fs.readFile(ctx.configFile, 'utf8'));
+  assert.equal(saved.autoPush, true);
+  assert.equal(saved.remote, 'upstream');
+  assert.equal(saved.branch, null);
+  assert.equal(saved.proxy, null);
+  assert.equal(saved.autoCommit, true);
+
+  // 重启后从配置文件恢复新字段
+  await ctx.server.close();
+  const restarted = createSyncServer({ configFile: ctx.configFile, port: 0, autoCommit: false, debounceMs: 20 });
+  const info2 = await restarted.listen();
+  t.after(async function () { await restarted.close().catch(function () {}); });
+  const restartedConfig = await api(info2.url, 'GET', '/config');
+  assert.equal(restartedConfig.json.autoPush, true);
+  assert.equal(restartedConfig.json.remote, 'upstream');
+  assert.equal(restartedConfig.json.branch, null);
+  assert.equal(restartedConfig.json.proxy, null);
 });
 
 test('PUT /state 写入分组+条目，落盘正确；再次 PUT 按 updatedAt 合并并返回最新完整 state', async function (t) {
@@ -461,6 +657,170 @@ test('外部修改数据文件后 GET /state 返回新 revision；PUT 触发 deb
 
   const subjects2 = await waitForGitLog(repoDir, dataFile, 2);
   assert.match(subjects2[0], /^notes: 自动同步 /);
+});
+
+test('autoPush=true 时 PUT /state → commit → push 到 bare 远程仓库', { skip: !GIT_AVAILABLE && 'git 不可用，跳过 git 集成测试' }, async function (t) {
+  const ctx = await startServer(t, {
+    autoCommit: true,
+    autoPush: true,
+    remote: 'origin',
+    branch: null,
+    debounceMs: 30,
+  });
+
+  const layout = await createRepoWithBareOrigin(ctx.root);
+  const bareDir = layout.bareDir;
+  const repoDir = layout.repoDir;
+  const dataFile = layout.dataFile;
+
+  const created = await api(ctx.base, 'POST', '/config', { dataFile: dataFile });
+  assert.equal(created.status, 200);
+  assert.equal(created.json.git.repo, true);
+  assert.deepEqual(created.json.git.push, {
+    enabled: true,
+    remote: 'origin',
+    branch: null,
+    last: { ok: null, at: null, error: null },
+  });
+
+  // branch=null → 服务端用当前分支
+  const branchRes = await run('git', ['-C', repoDir, 'symbolic-ref', '--short', 'HEAD']);
+  assert.equal(branchRes.code, 0);
+  const branch = branchRes.stdout.trim();
+  assert.ok(branch, '工作仓库应有当前分支');
+
+  const put = await api(ctx.base, 'PUT', '/state', {
+    state: {
+      items: [{ id: 'i1', text: 'Push this sentence.', pageUrl: PAGE, updatedAt: '2026-10-20T00:00:00.000Z' }],
+    },
+  });
+  assert.equal(put.status, 200);
+
+  // 工作仓库自动 commit
+  const subjects = await waitForGitLog(repoDir, dataFile, 1);
+  assert.match(subjects[0], /^notes: 自动同步 /);
+  const workHead = (await run('git', ['-C', repoDir, 'rev-parse', 'HEAD'])).stdout.trim();
+
+  // bare 远程仓库收到同一提交
+  const bareSubjects = await waitFor(async function () {
+    const res = await run('git', ['-C', bareDir, 'log', '--pretty=%s', branch]);
+    if (res.code !== 0) return null;
+    const list = res.stdout.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+    return list.length >= 1 ? list : null;
+  }, 15000, 'bare 远程仓库收到 push');
+  assert.match(bareSubjects[0], /^notes: 自动同步 /);
+  const bareHead = (await run('git', ['-C', bareDir, 'rev-parse', 'refs/heads/' + branch])).stdout.trim();
+  assert.equal(bareHead, workHead, '远程仓库 HEAD 应与本地最后一次提交一致');
+
+  // health 记录最后一次 push 成功
+  const pushState = await waitFor(async function () {
+    const res = await api(ctx.base, 'GET', '/health');
+    const push = res.json.git.push;
+    return push.last.ok === true ? push : null;
+  }, 10000, 'health 记录 push 成功');
+  assert.equal(pushState.enabled, true);
+  assert.equal(pushState.remote, 'origin');
+  assert.equal(pushState.branch, null);
+  assert.equal(pushState.last.ok, true);
+  assert.equal(pushState.last.error, null);
+  assert.equal(typeof pushState.last.at, 'string');
+  assert.ok(!Number.isNaN(Date.parse(pushState.last.at)), 'last.at 应是 ISO 时间');
+});
+
+test('push 失败（远程不存在）时文件写入与 commit 仍成功，health 记录 last.ok=false', { skip: !GIT_AVAILABLE && 'git 不可用，跳过 git 集成测试' }, async function (t) {
+  const ctx = await startServer(t, {
+    autoCommit: true,
+    autoPush: true,
+    remote: 'no-such-remote',
+    debounceMs: 30,
+  });
+
+  // 只有工作仓库，没有配置任何远程
+  const layout = await createRepoWithBareOrigin(ctx.root, { addOrigin: false });
+  const repoDir = layout.repoDir;
+  const dataFile = layout.dataFile;
+
+  const created = await api(ctx.base, 'POST', '/config', { dataFile: dataFile });
+  assert.equal(created.status, 200);
+  assert.equal(created.json.git.repo, true);
+  assert.equal(created.json.git.push.enabled, true);
+  assert.equal(created.json.git.push.remote, 'no-such-remote');
+
+  const put = await api(ctx.base, 'PUT', '/state', {
+    state: {
+      items: [{ id: 'i1', text: 'Still saved locally.', pageUrl: PAGE, updatedAt: '2026-10-20T00:00:00.000Z' }],
+    },
+  });
+  assert.equal(put.status, 200);
+
+  // 文件写入不受 push 影响
+  const disk = JSON.parse(await fs.readFile(dataFile, 'utf8'));
+  assert.equal(disk.items.length, 1);
+  const readBack = await api(ctx.base, 'GET', '/state');
+  assert.equal(readBack.status, 200);
+  assert.equal(readBack.json.revision, put.json.revision);
+
+  // commit 仍成功
+  const subjects = await waitForGitLog(repoDir, dataFile, 1);
+  assert.match(subjects[0], /^notes: 自动同步 /);
+
+  // push 失败被记录，服务继续正常
+  const pushState = await waitFor(async function () {
+    const res = await api(ctx.base, 'GET', '/health');
+    const push = res.json.git.push;
+    return push.last.ok === false ? push : null;
+  }, 15000, 'health 记录 push 失败');
+  assert.equal(pushState.enabled, true);
+  assert.equal(pushState.last.ok, false);
+  assert.equal(typeof pushState.last.at, 'string');
+  assert.ok(!Number.isNaN(Date.parse(pushState.last.at)));
+  assert.equal(typeof pushState.last.error, 'string');
+  assert.ok(pushState.last.error.length > 0, 'last.error 应包含失败原因');
+
+  // push 失败后继续写入仍正常
+  const put2 = await api(ctx.base, 'PUT', '/state', {
+    state: {
+      items: [{ id: 'i2', text: 'Second sentence.', pageUrl: PAGE, updatedAt: '2026-10-20T00:01:00.000Z' }],
+    },
+  });
+  assert.equal(put2.status, 200);
+  assert.equal(put2.json.state.items.length, 2);
+});
+
+test('close() 会 flush 未执行的 debounce commit 与 autoPush', { skip: !GIT_AVAILABLE && 'git 不可用，跳过 git 集成测试' }, async function (t) {
+  const ctx = await startServer(t, {
+    autoCommit: true,
+    autoPush: true,
+    remote: 'origin',
+    debounceMs: 2000,
+  });
+
+  const layout = await createRepoWithBareOrigin(ctx.root);
+  const bareDir = layout.bareDir;
+  const repoDir = layout.repoDir;
+  const dataFile = layout.dataFile;
+
+  const created = await api(ctx.base, 'POST', '/config', { dataFile: dataFile });
+  assert.equal(created.status, 200);
+
+  const branch = (await run('git', ['-C', repoDir, 'symbolic-ref', '--short', 'HEAD'])).stdout.trim();
+  assert.ok(branch);
+
+  const put = await api(ctx.base, 'PUT', '/state', {
+    state: {
+      items: [{ id: 'i1', text: 'Flush me.', pageUrl: PAGE, updatedAt: '2026-10-20T00:00:00.000Z' }],
+    },
+  });
+  assert.equal(put.status, 200);
+
+  // debounce 远未到期（2s）时关闭服务：close() 应 flush commit + push
+  await ctx.server.close();
+
+  const subjects = await waitForGitLog(repoDir, dataFile, 1);
+  assert.match(subjects[0], /^notes: 自动同步 /);
+  const bareLog = await run('git', ['-C', bareDir, 'log', '--pretty=%s', branch]);
+  assert.equal(bareLog.code, 0, 'close flush 后 bare 仓库应有 push 的提交');
+  assert.match(bareLog.stdout, /notes: 自动同步 /);
 });
 
 test('start-sync.bat 存在且指向 sync-server.mjs', async function () {

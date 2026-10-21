@@ -777,12 +777,12 @@
       '<div id="enb-setup" class="backdrop" hidden>' +
         '<section class="dialog">' +
           '<h3>连接本地同步服务</h3>' +
-          '<p class="hint">批注数据保存在一个 JSON 文件里，由本地同步服务写入并自动提交到 git。首次使用需要两步：</p>' +
+          '<p class="hint">批注数据保存在私有 GitHub 数据仓库的本地克隆里，由同步服务自动 commit + push。首次使用需要两步：</p>' +
           '<ol class="steps">' +
             '<li>双击 <code>sync-server\\start-sync.bat</code> 启动同步服务；</li>' +
-            '<li>在下面填写该数据文件的绝对路径（文件不存在会自动创建）。</li>' +
+            '<li>在下面填写私有数据仓库中该数据文件的绝对路径（文件不存在会自动创建）。</li>' +
           '</ol>' +
-          '<input id="enb-setup-path" class="input" type="text" placeholder="例如 D:\\notes\\english-notes.json" />' +
+          '<input id="enb-setup-path" class="input" type="text" placeholder="例如 C:\\Users\\你\\Documents\\english-notebook-data\\english-notes.json" />' +
           '<div id="enb-setup-error" class="error"></div>' +
           '<div class="dialog-actions">' +
             '<button id="enb-setup-submit" class="btn primary">连接并保存</button>' +

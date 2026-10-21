@@ -1,6 +1,6 @@
 # English Notebook · 英文批注与翻译
 
-浏览器扩展 + 本地同步服务：在任意网页选中英文，**右键「翻译并记录」**，右侧滑出批注栏，原文出现彩色波浪线；在已有波浪线里再选短语，会叠出**另一种颜色的嵌套波浪线**。批注按页面绑定，数据写进一个 JSON 文件，由本地服务自动 `git commit`。
+浏览器扩展 + 本地同步服务：在任意网页选中英文，**右键「翻译并记录」**，右侧滑出批注栏，原文出现彩色波浪线；在已有波浪线里再选短语，会叠出**另一种颜色的嵌套波浪线**。批注按页面绑定，数据写进私有数据仓库里的 JSON 文件，由本地服务自动 `git commit` + `push`。
 
 ## 架构
 
@@ -13,7 +13,7 @@ background service worker：调用翻译 Provider → 写入 chrome.storage.loca
         ↓
 sync-server（Node，127.0.0.1:17890）：读写用户指定绝对路径的 JSON 文件
         ↓
-数据文件所在 git 仓库：写入后 4s debounce 自动 commit（不 push）
+数据文件所在 git 仓库：写入后 4s debounce 自动 commit；开启 autoPush 后自动 push 到私有数据仓库
 ```
 
 - 扩展和同步服务之间用 HTTP + JSON；服务未启动时扩展仍可本地使用，启动后自动合并。
@@ -29,7 +29,7 @@ sync-server（Node，127.0.0.1:17890）：读写用户指定绝对路径的 JSON
 - **按页面绑定**：刷新页面后按「原文 + 出现序号」重新定位并恢复波浪线。
 - **分组**：分组可绑定域名（子域自动匹配），记录时自动归入第一个匹配分组；设置页可随时移动。
 - **设置/管理页**：同步状态与路径、翻译 Provider、分组增删改、全部批注搜索/改译文/换组/删除、JSON 导入导出。
-- **本地 git 同步**：数据文件自动创建、自动 `git commit`、增量合并（同 id 取 `updatedAt` 较新者）。
+- **私有数据仓库同步**：数据文件自动创建、自动 `git commit`，可自动 `push` 到私有 GitHub 仓库；按 id + `updatedAt` 增量合并。
 - **翻译 Provider**：MyMemory（默认免费）/ Google 免 Key / OpenAI 兼容 / DeepSeek（与 AI 审查共用配置）/ 自定义 HTTP 接口 / 关闭自动翻译。
 - **AI 审查（与翻译共用同一份 LLM 配置）**：批注卡片点 🧠，先写下自己的中文翻译，AI 会点评并提取不熟悉的单词 / 词组 / 固定用法，保存到本机。
 - **常驻复习气泡**：页面右下角 📚 气泡，点开可「复习 / 批注栏 / 设置」；复习按 单词 / 词组 / 固定用法 分类，卡片翻面、标记已记住。
@@ -40,8 +40,8 @@ sync-server（Node，127.0.0.1:17890）：读写用户指定绝对路径的 JSON
 
 1. **加载扩展**：Edge 打开 `edge://extensions`（Chrome 为 `chrome://extensions`）→ 打开「开发人员模式」→「加载解压缩的扩展」→ 选择本仓库的 `extension/` 目录。
 2. **启动同步服务**：双击 `sync-server/start-sync.bat`（或仓库根执行 `node sync-server/sync-server.mjs`）。
-3. **设置数据文件**：第一次在网页右键记录时，扩展会弹窗要求填写数据文件的**绝对路径**，例如：
-   - `C:\Users\你的用户名\Documents\english-notebook\data\english-notes.json`，或任意目录下的新文件（父目录需存在，文件会自动创建）。
+3. **设置数据文件**：第一次在网页右键记录时，扩展会弹窗要求填写数据文件的**绝对路径**。数据文件放在你私有 GitHub 数据仓库的本地克隆里，例如：
+   - `C:\Users\你的用户名\Documents\english-notebook-data\english-notes.json`（本机已配置好这个私有仓库）。
    - 也可以随时在扩展设置页（`Alt+M` 或扩展详情 → 扩展选项）填写并点「保存地址并连接」。
 4. 在网页上选中一段英文 → 右键 →「翻译并记录」→ 右侧出现批注栏。
 
@@ -61,9 +61,37 @@ sync-server（Node，127.0.0.1:17890）：读写用户指定绝对路径的 JSON
 
 **嵌套批注**：在一段已有波浪线的文字里再选一个短语右键记录，会自动作为子批注（不同颜色的波浪线、批注栏里缩进）。删除父批注会级联删除子批注。
 
-> **隐私与同步边界**：共用 LLM 配置的 API Key、AI 审查记录、学习条目只保存在本机 `chrome.storage.local`，不会写入 `data/english-notes.json`，也不会随 git 同步或上传。
+> **隐私与同步边界**：学习批注只写入**私有**数据仓库；公开代码仓库不包含任何学习数据。共用 LLM 配置的 API Key、AI 审查记录、学习条目只保存在本机 `chrome.storage.local`，不会写入数据仓库，也不会进 git。
 
 ## 数据与同步
+
+### 私有数据仓库（GitHub 当网盘）
+
+学习数据**不放进公开代码仓库**，而是放在一个私有 GitHub 数据仓库：
+
+- 私有仓库：`https://github.com/chinee0/english-notebook-data`
+- 本地克隆：`C:\Users\30766\Documents\english-notebook-data`
+- 数据文件：`english-notes.json`
+- 同步服务写入后自动 commit；`autoPush` 开启后自动 push 到 `origin/main`
+
+`sync-server/sync-config.json`（本机生成、已 gitignore）示例：
+
+```json
+{
+  "dataFile": "C:\\Users\\30766\\Documents\\english-notebook-data\\english-notes.json",
+  "autoCommit": true,
+  "debounceMs": 4000,
+  "autoPush": true,
+  "remote": "origin",
+  "branch": "main",
+  "proxy": "http://127.0.0.1:7897"
+}
+```
+
+- `proxy` 按本机网络填写（Clash Verge 常见混合端口 `127.0.0.1:7897`）；没有代理就填 `null`。
+- push 认证沿用本机 Git 凭据（Git Credential Manager），不需要把 token 写进配置。
+- 换机器时：clone 私有数据仓库到本地，启动服务后让扩展把数据文件路径指向它即可；同步服务会继续 commit + push。
+- push 失败只记录在 `/health` 的 `git.push.last`，不会影响本地写入和 commit；恢复网络后下一次写入会重新 push。
 
 数据文件结构（v2）：
 
@@ -97,13 +125,13 @@ sync-server（Node，127.0.0.1:17890）：读写用户指定绝对路径的 JSON
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /health` | `{ok, server, version, configured, dataFile, git}` |
-| `GET /config` | 当前 `{dataFile, autoCommit, debounceMs}` |
-| `POST /config` | `{dataFile}` 设置绝对路径；自动创建空文件；持久化到 `sync-server/sync-config.json`（已 gitignore） |
+| `GET /health` | `{ok, server, version, configured, dataFile, git}`，`git.push` 含 `{enabled, remote, branch, last}` |
+| `GET /config` | 当前 `{dataFile, autoCommit, debounceMs, autoPush, remote, branch, proxy}` |
+| `POST /config` | 设置绝对路径与 git 选项；自动创建空文件；持久化到 `sync-server/sync-config.json`（已 gitignore） |
 | `GET /state` | `{revision, state}`；未配置返回 409 |
 | `PUT /state` | 与服务端现有文件合并后写回，返回合并后的完整 `state` 与 `revision` |
 
-合并规则：按 `id` 比较 `updatedAt`，较新者胜出；新增项追加；旧版本计入 `skipped`；父批注悬空/跨页/成环会被自动修复。git 提交只包含数据文件，提交失败静默降级（非 git 仓库时只写文件）。
+合并规则：按 `id` 比较 `updatedAt`，较新者胜出；新增项追加；旧版本计入 `skipped`；父批注悬空/跨页/成环会被自动修复。commit 只包含数据文件；开启 `autoPush` 后 commit 成功即 push 到配置的远程分支，失败静默降级。
 
 ## 翻译 Provider
 
@@ -127,7 +155,7 @@ node tests/serve.mjs        # 打印 PORT，供浏览器打开 tests/*.html 冒�
 测试构成：
 
 - `tests/core.test.mjs`：数据模型、页面 URL 规范化、嵌套父批注校验、合并导入（12 条）。
-- `tests/sync-server.test.mjs`：同步服务 HTTP 契约、绝对路径校验、落盘、合并、git 自动提交（6 条）。
+- `tests/sync-server.test.mjs`：同步服务 HTTP 契约、绝对路径校验、落盘、合并、git 自动 commit + push（含 bare origin 真实推送测试，10 条）。
 - `tests/background.test.mjs`：用 Node VM 模拟 chrome API，联调 background ↔ 真实 sync-server。
 - `tests/render-smoke.html`：浏览器里验证嵌套波浪线、颜色、跨标签节点匹配、选区父级识别。
 - `tests/content-smoke.html`：用 chrome API 桩加载真实 `content.js`，验证 UI 注入、批注栏、卡片缩进、toast、选区采集。
@@ -156,13 +184,13 @@ extension/
   content.js         页面内 UI：批注栏、首次路径弹窗、toast、快捷键、SPA 监听
   options.html/js    设置与批注管理页
 sync-server/
-  sync-server.mjs    本地 HTTP 同步服务 + git 自动提交
+  sync-server.mjs    本地 HTTP 同步服务 + git 自动 commit / push
   start-sync.bat     双击启动
-data/
-  english-notes.json 仓库内默认数据文件示例
 tests/               单元测试、服务/后台集成测试、浏览器冒烟页
 legacy-userscript/   旧版油猴脚本（v0.1，已归档）
 ```
+
+> 学习数据文件不在这个公开仓库里；它在私有数据仓库 `english-notebook-data` 的本地克隆中（见「私有数据仓库」）。
 
 ## 已知限制
 
@@ -170,7 +198,7 @@ legacy-userscript/   旧版油猴脚本（v0.1，已归档）
 - **批注只在本页显示**：同一网站的其他页面不会出现（按 URL 规范化后精确匹配）。
 - **嵌套颜色循环**：最多 6 层颜色循环、20 层上限。
 - **翻译依赖第三方接口**：可能限流/超时；国内访问 Google 接口通常失败，建议用 MyMemory 或自备 OpenAI 兼容 / DeepSeek / 自定义接口。
-- **同步服务需手动启动**：不启动时扩展只写浏览器本地存储，不会进 git；多设备同时编辑同一批注时按更新时间取新，可能覆盖旧内容（冲突方内容会丢）。
+- **同步服务需手动启动**：不启动时扩展只写浏览器本地存储，不会进 git；多设备同时编辑同一批注时按更新时间取新，可能覆盖旧内容（冲突方内容会丢）。`autoPush` 需要网络和可用代理，失败会在 `/health` 的 `git.push.last` 显示。
 - **数据规模**：`chrome.storage.local` 和全文 JSON 文件适合万条以内批注，不适合超大词库。
 - **权限**：扩展声明 `<all_urls>` 以在任何网页注入批注 UI，浏览器会提示「读取和更改所有网站的数据」；数据仅本地存储/本地服务，无遥测。
 

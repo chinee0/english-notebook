@@ -96,13 +96,13 @@
 <body>
   <header>
     <h1>English Notebook</h1>
-    <span class="sub">设置与批注管理 · v0.4.1</span>
+    <span class="sub">设置与批注管理 · v0.5.0</span>
   </header>
 
   <main>
     <section>
       <h2>本地同步（git）</h2>
-      <p class="desc">扩展通过本地服务读写一个 JSON 数据文件，并自动 git commit。首次使用先双击 <code>sync-server\start-sync.bat</code>，再填写文件绝对路径。</p>
+      <p class="desc">扩展通过本地服务读写私有数据仓库里的 JSON 文件；写入后自动 commit，并在 sync-server 配置开启 autoPush 时自动 push。</p>
       <div id="sync-status" class="status">检测中…</div>
       <div class="row">
         <label class="field"><span>同步服务地址</span><input id="sync-endpoint" type="text" placeholder="http://127.0.0.1:17890" /></label>
