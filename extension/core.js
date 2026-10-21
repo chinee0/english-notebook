@@ -114,6 +114,49 @@
     return out;
   }
 
+  /* ---------- 单词词典（AI 生成） ---------- */
+
+  function normalizeDictionary(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const senses = Array.isArray(raw.senses) ? raw.senses : [];
+    const out = {
+      word: cleanText(raw.word, 80),
+      phonetic: String(raw.phonetic || '').slice(0, 80),
+      partOfSpeech: String(raw.partOfSpeech || '').slice(0, 40),
+      senses: [],
+    };
+    senses.slice(0, 6).forEach(function (sense) {
+      if (!sense || typeof sense !== 'object') return;
+      const zh = cleanText(sense.zh, 300);
+      const en = cleanText(sense.en, 500);
+      const example = cleanText(sense.example, 500);
+      const exampleZh = cleanText(sense.exampleZh, 500);
+      if (!zh && !en) return;
+      out.senses.push({ zh: zh, en: en, example: example, exampleZh: exampleZh });
+    });
+    if (!out.senses.length && !out.phonetic && !out.partOfSpeech) return null;
+    return out;
+  }
+
+  function parseWordDictionary(raw, fallbackWord) {
+    if (!raw) return null;
+    let text = String(raw).trim();
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        try { data = JSON.parse(text.slice(start, end + 1)); } catch (e2) { /* ignore */ }
+      }
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+    if (!data.word) data.word = fallbackWord || '';
+    return normalizeDictionary(data);
+  }
+
   /* ---------- 页面 / 网址 ---------- */
 
   function normalizePageUrl(raw) {
@@ -216,6 +259,7 @@
         sourceHost: normalizeHost(it.sourceHost || hostOfPage(pageUrl)),
         anchor: normalizeAnchor(it.anchor, text),
         parentId: it.parentId ? String(it.parentId) : null,
+        dictionary: normalizeDictionary(it.dictionary),
         createdAt: it.createdAt || nowIso(),
         updatedAt: it.updatedAt || it.createdAt || nowIso(),
       });
@@ -336,6 +380,7 @@
       sourceHost: normalizeHost(data.sourceHost || hostOfPage(pageUrl)),
       anchor: normalizeAnchor(data.anchor, text),
       parentId: parentId,
+      dictionary: normalizeDictionary(data.dictionary),
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
@@ -374,6 +419,7 @@
       }
       item.parentId = next;
     }
+    if (patch.dictionary !== undefined) item.dictionary = normalizeDictionary(patch.dictionary);
     item.updatedAt = nowIso();
     touch(state);
     return item;
@@ -472,6 +518,8 @@
     splitForTranslation: splitForTranslation,
     AI_TYPES: AI_TYPES,
     parseAIReview: parseAIReview,
+    normalizeDictionary: normalizeDictionary,
+    parseWordDictionary: parseWordDictionary,
     normalizePageUrl: normalizePageUrl,
     normalizeHost: normalizeHost,
     hostOfPage: hostOfPage,

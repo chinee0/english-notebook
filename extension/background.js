@@ -28,6 +28,10 @@ const DEFAULT_SETTINGS = {
     apiKey: '',
     model: 'deepseek-chat',
   },
+  /* 单个单词记录时，用共用 LLM 生成词典式释义（音标/词性/中英释义/例句） */
+  dictionary: {
+    enabled: true,
+  },
 };
 
 let stateCache = null;
@@ -333,6 +337,41 @@ chrome.commands.onCommand.addListener(function (command) {
 
 /* ---------------- 右键记录流程 ---------------- */
 
+function isSingleWord(text) {
+  return /^[A-Za-z][A-Za-z'’\-]{1,44}$/.test(String(text || '').trim());
+}
+
+async function lookupWordDictionary(word) {
+  try {
+    if (!settingsCache.dictionary || settingsCache.dictionary.enabled === false) return null;
+    if (!settingsCache.llm || !settingsCache.llm.apiKey) return null;
+    if (!isSingleWord(word)) return null;
+    const messages = [
+      {
+        role: 'system',
+        content: '你是一名美式英语词典编辑。只输出一个 JSON 对象，不要输出 Markdown 代码块或额外解释。',
+      },
+      {
+        role: 'user',
+        content: [
+          '为英语单词 "' + word + '" 生成词典条目，要求：',
+          '1. phonetic 用美式 IPA 音标，带斜杠，例如 /dɪˈsɪʒən/；',
+          '2. partOfSpeech 用缩写，如 n. / v. / adj. / adv.，多词性用 " / " 分隔；',
+          '3. senses 给 1-3 个常用义项，每个义项包含中文释义 zh、英文释义 en、英文例句 example、例句中文翻译 exampleZh。',
+          '',
+          '严格按这个 JSON 格式输出：',
+          '{"word":"' + word + '","phonetic":"/.../","partOfSpeech":"n.","senses":[{"zh":"中文释义","en":"English definition","example":"An English example sentence.","exampleZh":"例句中文翻译"}]}',
+        ].join('\n'),
+      },
+    ];
+    const result = await callDeepSeek(messages);
+    if (!result.ok) return null;
+    return C.parseWordDictionary(result.text, word);
+  } catch (e) {
+    return null;
+  }
+}
+
 async function captureAndRecord(tab, translate, fallbackText) {
   await ensureReady();
   const tabId = tab && validTabId(tab.id) ? tab.id : null;
@@ -366,16 +405,23 @@ async function captureAndRecord(tab, translate, fallbackText) {
   }
 
   let translation = '';
-  if (translate) {
-    const result = await translateText(capture.text);
-    if (result.ok) {
-      translation = result.text;
+  let dictionary = null;
+  const wantDictionary = translate && isSingleWord(capture.text) &&
+    settingsCache.dictionary && settingsCache.dictionary.enabled !== false;
+  const transPromise = translate ? translateText(capture.text) : Promise.resolve(null);
+  const dictPromise = wantDictionary ? lookupWordDictionary(capture.text) : Promise.resolve(null);
+  const results = await Promise.all([transPromise, dictPromise]);
+  const transResult = results[0];
+  dictionary = results[1] || null;
+  if (transResult) {
+    if (transResult.ok) {
+      translation = transResult.text;
     } else if (tabId !== null) {
-      toastTab(tabId, '翻译失败，已先记录原文：' + result.error);
+      toastTab(tabId, '翻译失败，已先记录原文：' + transResult.error);
     }
   }
 
-  const item = await addAnnotation(capture, translation);
+  const item = await addAnnotation(capture, translation, dictionary);
   if (!item) {
     if (tabId !== null) toastTab(tabId, '记录失败');
     return;
@@ -393,10 +439,11 @@ function autoGroupId(pageUrl) {
   return groups.length ? groups[0].id : null;
 }
 
-async function addAnnotation(capture, translation) {
+async function addAnnotation(capture, translation, dictionary) {
   const item = C.addItem(stateCache, {
     text: capture.text,
     translation: translation || '',
+    dictionary: dictionary || null,
     pageUrl: capture.pageUrl,
     pageTitle: capture.pageTitle || '',
     groupId: autoGroupId(capture.pageUrl),

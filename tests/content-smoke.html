@@ -19,6 +19,12 @@
               text: 'The committee has yet to reach a decision.',
               translation: '委员会尚未作出决定。',
               pageUrl: location.href,
+              dictionary: {
+                word: 'committee',
+                phonetic: '/kəˈmɪti/',
+                partOfSpeech: 'n.',
+                senses: [{ zh: '委员会', en: 'a group of people who make decisions', example: 'The committee met today.', exampleZh: '委员会今天开会了。' }],
+              },
             });
             var child = C.addItem(s, {
               text: 'yet to reach',
@@ -118,6 +124,8 @@
             push('spokenLang', utt && utt.lang);
             push('spokenVoiceLang', utt && utt.voice && utt.voice.lang);
             push('spokenRate', utt && utt.rate);
+            push('dictBlocks', shadow.querySelectorAll('.dict-block').length);
+            push('dictPhonetic', (shadow.querySelector('.dict-phonetic') || {}).textContent || '');
 
             // 后台消息：toast
             if (window.__onMessage) {

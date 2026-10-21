@@ -96,7 +96,7 @@
 <body>
   <header>
     <h1>English Notebook</h1>
-    <span class="sub">设置与批注管理 · v0.7.2</span>
+    <span class="sub">设置与批注管理 · v0.8.0</span>
   </header>
 
   <main>
@@ -141,6 +141,10 @@
         </div>
         <label class="field"><span>API Key（只存本机扩展存储，不上传 git）</span><input id="openai-key" type="password" placeholder="sk-..." /></label>
         <p class="muted">DeepSeek 就填这份配置：Base URL <code>https://api.deepseek.com</code>，模型 <code>deepseek-chat</code>。</p>
+        <label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-size:13px;">
+          <input id="dict-enabled" type="checkbox" />
+          单词记录时用 AI 生成词典式释义（美式音标 / 词性 / 中英释义 / 例句）
+        </label>
       </div>
 
       <div id="custom-fields">

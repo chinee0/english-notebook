@@ -58,6 +58,7 @@ function fillSettings() {
   $('openai-base').value = llm.baseUrl || 'https://api.deepseek.com';
   $('openai-model').value = llm.model || 'deepseek-chat';
   $('openai-key').value = llm.apiKey || '';
+  $('dict-enabled').checked = !settings.dictionary || settings.dictionary.enabled !== false;
   $('custom-url').value = custom.url || '';
   $('custom-method').value = custom.method || 'GET';
   $('custom-result').value = custom.resultPath || 'translation';
@@ -192,6 +193,7 @@ async function saveTranslation() {
       },
     },
     llm: currentLlm(),
+    dictionary: { enabled: $('dict-enabled').checked },
   };
   const resp = await send({ type: 'SAVE_SETTINGS', settings: settings });
   if (resp.ok) {

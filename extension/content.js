@@ -526,6 +526,29 @@
     if (panelOpen) scheduleLayout();
   }, 1200);
 
+  function buildDictionaryBlock(dict) {
+    const block = h('div', { class: 'dict-block' });
+    const head = h('div', { class: 'dict-head' });
+    head.appendChild(h('span', { class: 'dict-badge', text: 'AI 词典' }));
+    if (dict.phonetic) head.appendChild(h('span', { class: 'dict-phonetic', text: dict.phonetic }));
+    if (dict.partOfSpeech) head.appendChild(h('span', { class: 'dict-pos', text: dict.partOfSpeech }));
+    block.appendChild(head);
+    (dict.senses || []).forEach(function (sense) {
+      const row = h('div', { class: 'dict-sense' });
+      if (sense.zh) row.appendChild(h('div', { class: 'dict-zh', text: sense.zh }));
+      if (sense.en) row.appendChild(h('div', { class: 'dict-en', text: sense.en }));
+      if (sense.example) {
+        row.appendChild(h('div', { class: 'dict-example' },
+          h('button', { class: 'icon-btn dict-speak', text: '🔊', title: '朗读例句', onclick: function () { speak(sense.example); } }),
+          h('span', { text: sense.example })
+        ));
+      }
+      if (sense.exampleZh) row.appendChild(h('div', { class: 'dict-example-zh', text: sense.exampleZh }));
+      block.appendChild(row);
+    });
+    return block;
+  }
+
   function buildCard(item) {
     const depth = depthOf(item);
     const color = R.colorForDepth(depth);
@@ -553,6 +576,7 @@
       text: item.translation || '（暂无译文，点 ✎ 补充）',
     });
     card.appendChild(trans);
+    if (item.dictionary) card.appendChild(buildDictionaryBlock(item.dictionary));
     if (item.note) card.appendChild(h('div', { class: 'note', text: item.note }));
 
     const actions = h('div', { class: 'actions' },
@@ -939,6 +963,17 @@
     '.quote { flex: 1; font-size: 13px; word-break: break-word; cursor: pointer; }',
     '.speak-btn { flex: none; border: 1px solid var(--enb-border); background: transparent; color: var(--enb-accent); border-radius: 6px; padding: 1px 6px; font-size: 11px; line-height: 1.6; white-space: nowrap; }',
     '.speak-btn:hover { background: var(--enb-accent-soft); }',
+    '.dict-block { margin-top: 6px; border-top: 1px dashed var(--enb-border); padding-top: 6px; font-size: 12px; }',
+    '.dict-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }',
+    '.dict-badge { font-size: 10px; border: 1px solid var(--enb-border); border-radius: 4px; padding: 0 4px; color: var(--enb-muted); }',
+    '.dict-phonetic { color: var(--enb-accent); }',
+    '.dict-pos { color: var(--enb-muted); }',
+    '.dict-sense { margin: 4px 0; padding-left: 6px; border-left: 2px solid var(--enb-hover); }',
+    '.dict-zh { font-weight: 600; }',
+    '.dict-en { color: var(--enb-muted); }',
+    '.dict-example { display: flex; align-items: flex-start; gap: 4px; margin-top: 2px; }',
+    '.dict-example-zh { color: var(--enb-muted); font-size: 11px; }',
+    '.dict-speak { font-size: 10px; padding: 0 3px; }',
     '.trans { font-size: 13px; color: var(--enb-text); white-space: pre-wrap; word-break: break-word; }',
     '.trans.muted { color: var(--enb-muted); font-size: 12px; }',
     '.note { color: var(--enb-muted); font-size: 12px; margin-top: 2px; white-space: pre-wrap; }',

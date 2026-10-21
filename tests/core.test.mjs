@@ -262,3 +262,52 @@ test('parseAIReview: 非法 JSON 返回 null，非法 verdict 回退，items 上
   assert.equal(parsed.verdict, '基本准确');
   assert.equal(parsed.items.length, 12);
 });
+
+test('parseWordDictionary: 解析音标/词性/义项并过滤空义项', function () {
+  const parsed = C.parseWordDictionary(JSON.stringify({
+    word: 'decision',
+    phonetic: '/dɪˈsɪʒən/',
+    partOfSpeech: 'n.',
+    senses: [
+      { zh: '决定', en: 'a choice or judgment', example: 'She made a decision.', exampleZh: '她做了一个决定。' },
+      { zh: '   ', en: '', example: 'x' },
+      null,
+    ],
+  }), 'decision');
+  assert.ok(parsed);
+  assert.equal(parsed.word, 'decision');
+  assert.equal(parsed.phonetic, '/dɪˈsɪʒən/');
+  assert.equal(parsed.partOfSpeech, 'n.');
+  assert.equal(parsed.senses.length, 1);
+  assert.equal(parsed.senses[0].zh, '决定');
+  assert.equal(parsed.senses[0].exampleZh, '她做了一个决定。');
+});
+
+test('parseWordDictionary: 容忍代码块/前后废话，非法 JSON 返回 null', function () {
+  const parsed = C.parseWordDictionary([
+    '结果如下：',
+    '```json',
+    '{"phonetic":"/test/","senses":[{"zh":"测试"}]}',
+    '```',
+  ].join('\n'), 'test');
+  assert.ok(parsed);
+  assert.equal(parsed.word, 'test');
+  assert.equal(parsed.phonetic, '/test/');
+  assert.equal(parsed.senses[0].zh, '测试');
+  assert.equal(C.parseWordDictionary('not json', 'x'), null);
+});
+
+test('normalizeState: 保留 items 上的单词词典字段', function () {
+  const normalized = C.normalizeState({
+    groups: [],
+    items: [{
+      id: 'i_dict',
+      text: 'decision',
+      pageUrl: 'https://example.com/a',
+      dictionary: { word: 'decision', phonetic: '/dɪˈsɪʒən/', partOfSpeech: 'n.', senses: [{ zh: '决定' }] },
+    }],
+  });
+  assert.equal(normalized.items.length, 1);
+  assert.equal(normalized.items[0].dictionary.phonetic, '/dɪˈsɪʒən/');
+  assert.equal(normalized.items[0].dictionary.senses[0].zh, '决定');
+});

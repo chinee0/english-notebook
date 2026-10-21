@@ -31,6 +31,7 @@ File System Access：直接读写你选择的 JSON 文件
 - **本地文件直读写**：用系统文件选择器授权一个 JSON 文件，扩展直接读写；不经过本地服务，也不做 git，文件可放 OneDrive/坚果云同步目录。
 - **翻译 Provider**：MyMemory（默认免费）/ Google 免 Key / OpenAI 兼容 / DeepSeek（与 AI 审查共用配置）/ 自定义 HTTP 接口 / 关闭自动翻译。
 - **AI 审查（与翻译共用同一份 LLM 配置）**：批注卡片点 🧠，先写下自己的中文翻译，AI 会点评并提取不熟悉的单词 / 词组 / 固定用法，保存到本机。
+- **单词 AI 词典**：记录单个英文单词时，用共用 LLM 生成美式 IPA 音标、词性、中英释义和例句，显示在批注卡片里（不需要额外的牛津 API Key；设置页可关闭）。
 - **美音朗读**：批注卡片、AI 提取的词/词组、复习卡片都有「🔊 美音」按钮，优先选择 en-US 的 Microsoft Natural / Google US English 语音朗读。
 - **内置 PDF 阅读器**：PDF 页面点扩展图标 →「用内置 PDF 阅读器打开」，用 pdf.js 渲染出可选中文字层；右键/气泡「记录选中」、波浪线、批注栏、AI 审查、美音朗读都能用，批注绑定原始 PDF 地址。
 - **常驻复习气泡**：页面右下角 📚 气泡，点开可「复习 / 批注栏 / 设置」；复习按 单词 / 词组 / 固定用法 分类，卡片翻面、标记已记住。
@@ -53,6 +54,7 @@ File System Access：直接读写你选择的 JSON 文件
 | 右键 → 仅记录 | 只记原文，译文稍后手动补 |
 | 批注栏 | 右侧边缘「批注 N」标签，或 `Alt+O` |
 | 🧠 我译 + AI 审查 | 批注卡片里的按钮：输入自己的翻译，AI 点评并生成学习条目 |
+| 📖 单词 AI 词典 | 记录单个单词时自动生成音标/词性/中英释义/例句（需配置共用 LLM） |
 | 🔊 美音 | 批注卡片 / AI 词条 / 复习卡片上的按钮，按美式发音朗读 |
 | 内置 PDF 阅读器 | 打开 PDF 后点扩展图标 →「用内置 PDF 阅读器打开」 |
 | 📚 常驻气泡 | 右下角，点开 → 复习 / 批注栏 / 设置 |
@@ -112,7 +114,8 @@ File System Access：直接读写你选择的 JSON 文件
 
 - **MyMemory**（默认）：免费、无需 Key，可能限流。
 - **Google Translate 免 Key 接口**：国内网络通常不可用。
-- **OpenAI 兼容 / DeepSeek**：填 Base URL / API Key / 模型；DeepSeek 填 `https://api.deepseek.com` + `deepseek-chat`。这份配置同时用于翻译和批注卡片的 AI 审查，只需配一次。
+- **OpenAI 兼容 / DeepSeek**：填 Base URL / API Key / 模型；DeepSeek 填 `https://api.deepseek.com` + `deepseek-chat`。这份配置同时用于翻译、批注卡片的 AI 审查、单词 AI 词典，只需配一次。
+- **单词 AI 词典**：记录单个英文单词时，DeepSeek 会返回美式音标、词性、中英释义和例句；没有填 API Key 时自动跳过，不影响正常记录。
 - **自定义 HTTP 接口**：GET 用 `{{text}}`、`{{lang}}` 占位；POST 用 body 模板 + 结果字段路径（如 `data.translation`）；可加自定义 headers。
 - **关闭**：只记录原文，译文手动补。
 
@@ -129,6 +132,7 @@ node tests/serve.mjs        # 打印 PORT，供浏览器打开 tests/*.html 冒�
 
 - `tests/core.test.mjs`：数据模型、页面 URL 规范化、嵌套父批注校验、合并导入、AI 返回解析、翻译分段（17 条）。
 - `tests/file-mode.test.mjs`：用假 FileStore 验证文件模式（启动读文件合并、修改写回、外部修改拉取、断开文件）。
+- `tests/dictionary.test.mjs`：验证单词记录时并行调用翻译 + DeepSeek 词典，并把音标/释义写入 state。
 - `tests/sync-server.test.mjs`：旧 HTTP 同步服务的契约、合并、git commit/push（10 条，保留作回归）。
 - `tests/background.test.mjs`：用 Node VM 模拟 chrome API，验证旧 HTTP 同步链路。
 - `tests/render-smoke.html`：浏览器里验证嵌套波浪线、颜色、跨标签节点匹配、选区父级识别。
