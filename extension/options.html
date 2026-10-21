@@ -96,7 +96,7 @@
 <body>
   <header>
     <h1>English Notebook</h1>
-    <span class="sub">设置与批注管理 · v0.8.1</span>
+    <span class="sub">设置与批注管理 · v0.9.0</span>
   </header>
 
   <main>
@@ -115,6 +115,10 @@
         <p class="muted">浏览器不允许扩展按任意绝对路径直接读写文件，所以首次需要你手动选择一次；之后扩展自动读写。文件放在哪由你决定（本地磁盘、OneDrive/坚果云同步目录都可以）。换文件时重新选择即可。</p>
         <p class="muted">如果选完文件后没有弹出写权限窗口：点「重新授权（允许写入）」。仍不弹时，扩展会引导你用“保存方式”重选同一个文件——选 same 文件并确认替换即可，扩展会先读取原内容再合并，不会清空。</p>
       </details>
+      <label style="display:flex;align-items:center;gap:8px;margin:10px 0;font-size:13px;">
+        <input id="pdf-auto-open" type="checkbox" />
+        打开 .pdf 链接时自动用内置 PDF 阅读器（推荐，否则 Edge 内置阅读器无法批注）
+      </label>
     </section>
 
     <section>

@@ -32,6 +32,10 @@ const DEFAULT_SETTINGS = {
   dictionary: {
     enabled: true,
   },
+  /* 打开 .pdf 链接时自动转到扩展自带的 pdf.js 阅读器，否则内容脚本无法注入 */
+  pdf: {
+    autoOpen: true,
+  },
 };
 
 let stateCache = null;
@@ -334,6 +338,38 @@ chrome.commands.onCommand.addListener(function (command) {
     chrome.runtime.openOptionsPage();
   }
 });
+
+/* ---------------- PDF 自动转内置阅读器 ---------------- */
+
+function isPdfUrl(url) {
+  return /\.pdf(\?|#|$)/i.test(String(url || ''));
+}
+
+function isPdfViewerUrl(url) {
+  try {
+    return String(url || '').indexOf(chrome.runtime.getURL('pdfviewer.html')) === 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+if (chrome.tabs && chrome.tabs.onUpdated && typeof chrome.tabs.onUpdated.addListener === 'function') {
+  chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+    ensureInit().then(function () {
+      if (!settingsCache || !settingsCache.pdf || settingsCache.pdf.autoOpen === false) return;
+      const url = (tab && tab.url) || changeInfo.url || '';
+      if (!url) return;
+      if (isPdfViewerUrl(url)) return;
+      if (!isPdfUrl(url)) return;
+      if (changeInfo.url !== url && changeInfo.status !== 'complete') return;
+      try {
+        chrome.tabs.update(tabId, {
+          url: chrome.runtime.getURL('pdfviewer.html?file=' + encodeURIComponent(url)),
+        });
+      } catch (e) { /* tab closed */ }
+    }).catch(function () { /* ignore */ });
+  });
+}
 
 /* ---------------- 右键记录流程 ---------------- */
 

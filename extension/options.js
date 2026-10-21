@@ -61,6 +61,7 @@ function fillSettings() {
   $('openai-model').value = llm.model || 'deepseek-chat';
   $('openai-key').value = llm.apiKey || '';
   $('dict-enabled').checked = !settings.dictionary || settings.dictionary.enabled !== false;
+  $('pdf-auto-open').checked = !settings.pdf || settings.pdf.autoOpen !== false;
   $('custom-url').value = custom.url || '';
   $('custom-method').value = custom.method || 'GET';
   $('custom-result').value = custom.resultPath || 'translation';
@@ -419,6 +420,9 @@ $('btn-choose-file').addEventListener('click', function () { pickFile(false); })
 $('btn-new-file').addEventListener('click', function () { pickFile(true); });
 $('btn-reauthorize').addEventListener('click', function () { reauthorizeFile(); });
 $('btn-clear-file').addEventListener('click', function () { clearFile(); });
+$('pdf-auto-open').addEventListener('change', async function () {
+  await send({ type: 'SAVE_SETTINGS', settings: { pdf: { autoOpen: this.checked } } });
+});
 
 $('btn-save-trans').addEventListener('click', function () { saveTranslation(); });
 $('btn-test-trans').addEventListener('click', function () { testTranslation(); });

@@ -38,6 +38,15 @@
     originalLink.href = file;
   } catch (e) { /* ignore */ }
 
+  const recordButton = document.getElementById('pdf-record');
+  if (recordButton) {
+    recordButton.addEventListener('click', function () {
+      chrome.runtime.sendMessage({ type: 'TRANSLATE_SELECTION' }, function () {
+        void chrome.runtime.lastError;
+      });
+    });
+  }
+
   const fileName = (function () {
     try {
       const clean = file.split('#')[0].split('?')[0];

@@ -18,6 +18,11 @@
     #pdf-toolbar .spacer { flex: 1; }
     #pdf-toolbar a { color: #93c5fd; text-decoration: none; }
     #pdf-toolbar a:hover { text-decoration: underline; }
+    #pdf-record {
+      border: 1px solid #93c5fd; background: #2563eb; color: #fff; border-radius: 7px;
+      padding: 4px 10px; font: 12px/1.5 "Microsoft YaHei", sans-serif; cursor: pointer;
+    }
+    #pdf-record:hover { background: #1d4ed8; }
     #pdf-container { display: flex; flex-direction: column; align-items: center; }
     .pdf-page { position: relative; margin: 0 0 18px; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.4); }
     .pdf-page canvas { display: block; }
@@ -39,6 +44,7 @@
     <strong>English Notebook · PDF</strong>
     <span id="pdf-status">加载中…</span>
     <span class="spacer"></span>
+    <button id="pdf-record" title="先选中英文，再点这里翻译并记录">📌 记录选中</button>
     <a id="pdf-original" href="#" target="_blank" rel="noopener">原始 PDF</a>
   </header>
 
