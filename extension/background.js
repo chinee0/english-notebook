@@ -227,18 +227,28 @@ async function fileTick() {
   return { changed: false, status: fileStatus };
 }
 
+function validTabId(tabId) {
+  return typeof tabId === 'number' && Number.isInteger(tabId) && tabId >= 0;
+}
+
 function notifyTabs(message) {
-  chrome.tabs.query({}, function (tabs) {
-    (tabs || []).forEach(function (tab) {
-      if (!tab.id) return;
-      chrome.tabs.sendMessage(tab.id, message, function () { void chrome.runtime.lastError; });
+  try {
+    chrome.tabs.query({}, function (tabs) {
+      (tabs || []).forEach(function (tab) {
+        if (!tab || !validTabId(tab.id)) return;
+        try {
+          chrome.tabs.sendMessage(tab.id, message, function () { void chrome.runtime.lastError; });
+        } catch (e) { /* tab closed */ }
+      });
     });
-  });
+  } catch (e) { /* ignore */ }
 }
 
 function notifyTab(tabId, message) {
-  if (!tabId) return;
-  chrome.tabs.sendMessage(tabId, message, function () { void chrome.runtime.lastError; });
+  if (!validTabId(tabId)) return;
+  try {
+    chrome.tabs.sendMessage(tabId, message, function () { void chrome.runtime.lastError; });
+  } catch (e) { /* tab closed / invalid */ }
 }
 
 function toastTab(tabId, message) {
@@ -299,7 +309,7 @@ chrome.contextMenus.onClicked.addListener(function (info, tab) {
   } else if (info.menuItemId === 'enb_record_only') {
     captureAndRecord(tab, false, info.selectionText);
   } else if (info.menuItemId === 'enb_toggle_panel') {
-    if (tab.id) notifyTab(tab.id, { type: 'TOGGLE_PANEL' });
+    if (validTabId(tab.id)) notifyTab(tab.id, { type: 'TOGGLE_PANEL' });
   } else if (info.menuItemId === 'enb_open_options') {
     chrome.runtime.openOptionsPage();
   }
@@ -314,7 +324,7 @@ chrome.commands.onCommand.addListener(function (command) {
   } else if (command === 'toggle-panel') {
     chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
       const tab = tabs && tabs[0];
-      if (tab && tab.id) notifyTab(tab.id, { type: 'TOGGLE_PANEL' });
+      if (tab && validTabId(tab.id)) notifyTab(tab.id, { type: 'TOGGLE_PANEL' });
     });
   } else if (command === 'open-manager') {
     chrome.runtime.openOptionsPage();
@@ -325,41 +335,53 @@ chrome.commands.onCommand.addListener(function (command) {
 
 async function captureAndRecord(tab, translate, fallbackText) {
   await ensureReady();
+  const tabId = tab && validTabId(tab.id) ? tab.id : null;
   let capture = null;
-  try {
-    capture = await chrome.tabs.sendMessage(tab.id, { type: 'REQUEST_CAPTURE' });
-  } catch (e) { /* 页面没有内容脚本 */ }
+  if (tabId !== null) {
+    try {
+      capture = await chrome.tabs.sendMessage(tabId, { type: 'REQUEST_CAPTURE' });
+    } catch (e) { /* 页面没有内容脚本 */ }
+  }
 
   if (!capture || !capture.text) {
     const text = C.cleanText(fallbackText || '');
-    if (!text) { toastTab(tab.id, '请先选中要记录的英文内容'); return; }
+    if (!text) {
+      if (tabId !== null) toastTab(tabId, '请先选中要记录的英文内容');
+      return;
+    }
     capture = {
       text: text,
-      pageUrl: tab.url || '',
-      pageTitle: tab.title || '',
+      pageUrl: (tab && tab.url) || '',
+      pageTitle: (tab && tab.title) || '',
       parentId: null,
       occurrence: 0,
       prefix: '',
       suffix: '',
     };
   }
-  if (!capture.pageUrl) capture.pageUrl = tab.url || '';
-  if (!capture.pageUrl) { toastTab(tab.id, '无法识别当前页面地址'); return; }
+  if (!capture.pageUrl) capture.pageUrl = (tab && tab.url) || '';
+  if (!capture.pageUrl) {
+    if (tabId !== null) toastTab(tabId, '无法识别当前页面地址');
+    return;
+  }
 
   let translation = '';
   if (translate) {
     const result = await translateText(capture.text);
     if (result.ok) {
       translation = result.text;
-    } else {
-      toastTab(tab.id, '翻译失败，已先记录原文：' + result.error);
+    } else if (tabId !== null) {
+      toastTab(tabId, '翻译失败，已先记录原文：' + result.error);
     }
   }
 
   const item = await addAnnotation(capture, translation);
-  if (!item) { toastTab(tab.id, '记录失败'); return; }
+  if (!item) {
+    if (tabId !== null) toastTab(tabId, '记录失败');
+    return;
+  }
 
-  notifyTab(tab.id, { type: 'ANNOTATION_ADDED', itemId: item.id });
+  if (tabId !== null) notifyTab(tabId, { type: 'ANNOTATION_ADDED', itemId: item.id });
   notifyTabs({ type: 'STATE_UPDATED' });
   syncSoon();
 }
@@ -895,7 +917,7 @@ async function handleMessage(message, sender) {
   if (type === 'TRANSLATE_SELECTION') {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     const tab = tabs && tabs[0];
-    if (!tab) return { ok: false, error: '找不到当前标签页' };
+    if (!tab || !validTabId(tab.id)) return { ok: false, error: '当前标签页不可用' };
     await captureAndRecord(tab, true, '');
     return { ok: true };
   }

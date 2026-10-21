@@ -13,6 +13,7 @@ const source = readFileSync(join(root, '..', 'extension', 'background.js'), 'utf
 function createChromeMock(state) {
   const listeners = {};
   const store = {};
+  const metrics = { invalidSend: 0 };
   const chrome = {
     storage: {
       local: {
@@ -37,8 +38,14 @@ function createChromeMock(state) {
       lastError: undefined,
     },
     tabs: {
-      query: function () {},
-      sendMessage: function () {},
+      query: function (query, cb) {
+        if (typeof cb === 'function') cb([{ id: -1 }, { id: 0 }, {}, null]);
+      },
+      sendMessage: function (tabId) {
+        if (!(typeof tabId === 'number' && Number.isInteger(tabId) && tabId >= 0)) {
+          metrics.invalidSend++;
+        }
+      },
     },
     contextMenus: {
       removeAll: function (cb) { if (cb) cb(); },
@@ -47,7 +54,7 @@ function createChromeMock(state) {
     },
     commands: { onCommand: { addListener: function () {} } },
   };
-  return { chrome: chrome, listeners: listeners, store: store };
+  return { chrome: chrome, listeners: listeners, store: store, metrics: metrics };
 }
 
 function createFileStoreMock(initialText) {
@@ -143,6 +150,7 @@ test('文件模式：启动读文件合并、修改写回、外部修改拉取�
 
   const added = await send({ type: 'ADD_GROUP', name: '新分组', hosts: ['news.com'] });
   assert.equal(added.ok, true);
+  assert.equal(mock.metrics.invalidSend, 0, '不应向非法 tabId 发送消息');
   await sleep(800);
   const written = JSON.parse(fileStore.text);
   assert.ok(written.groups.some(function (g) { return g.name === '新分组'; }), '修改应写回文件');
