@@ -32,7 +32,10 @@
   }
 
   function collapse(str) {
-    return String(str === null || str === undefined ? '' : str).replace(/\s+/g, ' ').trim();
+    return String(str === null || str === undefined ? '' : str)
+      .replace(/[\u00AD\u200B-\u200D\uFEFF\u0000]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function skipElement(el, exclude) {
@@ -65,6 +68,8 @@
       const v = node.nodeValue;
       for (let i = 0; i < v.length; i++) {
         const ch = v.charAt(i);
+        /* PDF 文字层常带软连字符 / 零宽字符，索引时跳过，和 collapse() 保持一致 */
+        if (/[\u00AD\u200B-\u200D\uFEFF\u0000]/.test(ch)) continue;
         if (/\s/.test(ch)) {
           if (prevSpace) {
             const last = chars[chars.length - 1];

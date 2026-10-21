@@ -132,8 +132,11 @@
     }
 
     setStatus('共 ' + doc.numPages + ' 页 · 可直接选中文字批注');
-    /* 等文字层就绪后再让 content.js 重新定位批注 */
+    /* 等文字层就绪后再让 content.js 重新定位批注；再补一次，覆盖字体/布局异步完成的情况 */
     window.dispatchEvent(new CustomEvent('enb-rerender'));
+    setTimeout(function () {
+      window.dispatchEvent(new CustomEvent('enb-rerender'));
+    }, 600);
     setTimeout(function () {
       reportTest({
         ok: true,

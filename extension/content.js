@@ -19,6 +19,7 @@
   let hostEl = null;
 
   let pageItems = [];
+  let anchorRetry = 0;
   let sync = { serverUp: false, configured: false, dataFile: '' };
   let fileStatus = { configured: false, name: '', permission: 'none' };
   let panelOpen = false;
@@ -77,6 +78,7 @@
       document.documentElement.setAttribute('data-enb-ext', chrome.runtime.id || '');
     } catch (e) { /* ignore */ }
     window.addEventListener('enb-rerender', function () {
+      anchorRetry = 0;
       reloadPageState();
     });
   }
@@ -91,6 +93,19 @@
     renderPanel();
     updateEdge();
     maybePromptFile(resp.promptSetup);
+
+    /* PDF 文字层渲染/字体加载是异步的，锚点第一次可能没匹配上；有限次数重试 */
+    if (pageItems.length && anchorRetry < 3) {
+      const missed = pageItems.some(function (item) {
+        return !R.getSpan(item.id, document.body);
+      });
+      if (missed) {
+        anchorRetry++;
+        setTimeout(reloadPageState, 500);
+      } else {
+        anchorRetry = 0;
+      }
+    }
   }
 
   function renderAnnotations() {
@@ -513,8 +528,26 @@
     });
 
     entries.forEach(function (entry) {
-      if (entry.anchorTop === null) entry.card.style.display = 'none';
+      if (entry.anchorTop === null) {
+        /* 锚点找不到（常见于 PDF 文字层/页面已改版），不要隐藏卡片，否则批注栏会看起来是空的 */
+        entry.card.style.display = '';
+      }
     });
+
+    /* 没有锚点的卡片按顺序堆叠显示，至少保证能阅读/编辑批注 */
+    const unanchored = entries.filter(function (entry) { return entry.anchorTop === null; });
+    if (unanchored.length) {
+      let top = 8;
+      if (positioned.length) {
+        const last = positioned[positioned.length - 1];
+        top = (parseFloat(last.card.style.top) || 0) + last.height + 12;
+      }
+      unanchored.forEach(function (entry) {
+        entry.card.style.top = Math.round(top) + 'px';
+        top += entry.height + 10;
+        visible++;
+      });
+    }
 
     const hint = list.querySelector('.scroll-hint');
     if (hint) hint.hidden = visible > 0;
