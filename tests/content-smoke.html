@@ -88,7 +88,7 @@
             push('panelOpen', !shadow.querySelector('#enb-panel').hidden);
             push('cards', shadow.querySelectorAll('.card').length);
             var cards = shadow.querySelectorAll('.card');
-            push('nestedIndent', cards.length > 1 ? cards[1].style.marginLeft : '');
+            push('nestedIndent', cards.length > 1 ? cards[1].style.left : '');
 
             // 后台消息：toast
             if (window.__onMessage) {
@@ -127,7 +127,12 @@
             errors.push(String((e && e.stack) || e));
           }
 
-          setTimeout(report, 300);
+          setTimeout(function () {
+            var laterCards = shadow.querySelectorAll('.card');
+            push('cardPosition', laterCards.length ? getComputedStyle(laterCards[0]).position : '');
+            push('cardTopSet', laterCards.length ? laterCards[0].style.top : '');
+            report();
+          }, 300);
         }, 900);
       });
     })();

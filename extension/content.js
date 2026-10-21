@@ -116,6 +116,13 @@
     setup.addEventListener('click', function (e) {
       if (e.target === setup) dismissSetup();
     });
+    /* 鼠标在批注栏上滚动时，把滚轮交给页面，卡片才能跟着正文一起动 */
+    var panel = qs('enb-panel');
+    panel.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var unit = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? window.innerHeight : 1);
+      window.scrollBy(0, e.deltaY * unit);
+    }, { passive: false });
   }
 
   function qs(id) {
@@ -130,7 +137,9 @@
       if (v === undefined || v === null) return;
       if (k === 'class') el.className = v;
       else if (k === 'text') el.textContent = v;
-      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (k === 'dataset') {
+        Object.keys(v).forEach(function (name) { el.dataset[name] = v[name]; });
+      } else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2).toLowerCase(), v);
       else el.setAttribute(k, String(v));
     });
     for (let i = 2; i < arguments.length; i++) {
@@ -206,7 +215,67 @@
     }
 
     sortedItems().forEach(function (item) { list.appendChild(buildCard(item)); });
+    list.appendChild(h('div', { class: 'scroll-hint', text: '当前视口没有批注，滚动页面查看' }));
+    scheduleLayout();
   }
+
+  /* ---------------- 跟随滚动的边栏定位 ---------------- */
+
+  let layoutTimer = null;
+
+  function scheduleLayout() {
+    if (!panelOpen || layoutTimer) return;
+    layoutTimer = setTimeout(function () {
+      layoutTimer = null;
+      layoutComments();
+    }, 16);
+  }
+
+  function layoutComments() {
+    if (!panelOpen) return;
+    const list = qs('enb-list');
+    if (!list) return;
+    const cards = Array.prototype.slice.call(list.querySelectorAll('.card'));
+    if (!cards.length) return;
+
+    const listRect = list.getBoundingClientRect();
+    const entries = cards.map(function (card) {
+      const span = R.getSpan(card.dataset.cardId, document.body);
+      const rect = span ? span.getBoundingClientRect() : null;
+      return {
+        card: card,
+        height: card.offsetHeight || 60,
+        anchorTop: rect ? rect.top - listRect.top : null,
+      };
+    });
+
+    const positioned = entries.filter(function (entry) { return entry.anchorTop !== null; })
+      .sort(function (a, b) { return a.anchorTop - b.anchorTop; });
+
+    let cursor = -1e9;
+    let visible = 0;
+    positioned.forEach(function (entry) {
+      let top = entry.anchorTop - 2;
+      if (cursor > -1e8) top = Math.max(top, cursor + 8);
+      entry.card.style.top = Math.round(top) + 'px';
+      entry.card.style.display = '';
+      cursor = top + entry.height;
+      if (top + entry.height > 0 && top < listRect.height) visible++;
+    });
+
+    entries.forEach(function (entry) {
+      if (entry.anchorTop === null) entry.card.style.display = 'none';
+    });
+
+    const hint = list.querySelector('.scroll-hint');
+    if (hint) hint.hidden = visible > 0;
+  }
+
+  window.addEventListener('scroll', scheduleLayout, { passive: true });
+  window.addEventListener('resize', scheduleLayout);
+  setInterval(function () {
+    if (panelOpen) scheduleLayout();
+  }, 1200);
 
   function buildCard(item) {
     const depth = depthOf(item);
@@ -215,7 +284,7 @@
       class: 'card',
       dataset: { cardId: item.id },
     });
-    card.style.marginLeft = ((depth - 1) * 10) + 'px';
+    card.style.left = (10 + (depth - 1) * 10) + 'px';
     card.style.borderLeftColor = color.color;
 
     const quote = h('div', { class: 'quote', text: item.text });
@@ -261,6 +330,7 @@
       textarea.value = item.translation || '';
       textarea.focus();
     }
+    setTimeout(scheduleLayout, 0);
   }
 
   async function saveTranslation(item, card) {
@@ -515,8 +585,8 @@
     '.icon { border: none; background: transparent; color: var(--enb-muted); padding: 4px 6px; border-radius: 6px; font-size: 14px; line-height: 1; }',
     '.icon:hover { background: var(--enb-hover); color: var(--enb-text); }',
     '.panel-head .icon:first-of-type { margin-left: auto; }',
-    '.list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px; }',
-    '.card { background: var(--enb-bg); border: 1px solid var(--enb-border); border-left: 3px solid var(--enb-accent); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }',
+    '.list { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }',
+    '.card { position: absolute; left: 10px; right: 10px; will-change: top; background: var(--enb-bg); border: 1px solid var(--enb-border); border-left: 3px solid var(--enb-accent); border-radius: 8px; padding: 8px 10px; }',
     '.card.active { box-shadow: 0 0 0 2px var(--enb-accent-soft); }',
     '.quote { font-size: 13px; word-break: break-word; margin-bottom: 4px; }',
     '.trans { font-size: 13px; color: var(--enb-text); white-space: pre-wrap; word-break: break-word; }',
@@ -534,8 +604,9 @@
     '.btn:hover { background: var(--enb-hover); }',
     '.btn.primary { background: var(--enb-accent); border-color: var(--enb-accent); color: #fff; }',
     '.btn.small { padding: 2px 8px; font-size: 12px; }',
-    '.empty { color: var(--enb-muted); padding: 16px 8px; text-align: center; }',
+    '.empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--enb-muted); padding: 16px; text-align: center; }',
     '.empty p { margin: 0 0 6px; }',
+    '.scroll-hint { position: absolute; left: 20px; right: 20px; top: 50%; transform: translateY(-50%); text-align: center; color: var(--enb-muted); font-size: 12px; pointer-events: none; }',
     '.hint { color: var(--enb-muted); font-size: 12px; margin: 0; }',
     '.panel-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--enb-border); }',
     '.backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, .5); display: flex; align-items: center; justify-content: center; pointer-events: auto; }',

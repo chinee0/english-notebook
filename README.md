@@ -24,6 +24,7 @@ sync-server（Node，127.0.0.1:17890）：读写用户指定绝对路径的 JSON
 
 - **原生右键菜单**（真正的浏览器扩展，`chrome.contextMenus`）：`翻译并记录`、`仅记录`；`Alt+T` 快捷键等效。
 - **Word 式批注栏**：右侧卡片显示原文、译文、备注；可编辑译文、朗读、定位原文、删除；嵌套批注缩进并用对应颜色标记。
+- **批注跟随页面滚动**：每张卡片按它对应波浪线在页面里的位置纵向对齐，滚动页面时同步移动；位置重叠自动错开，滚出视口自动隐藏；鼠标在批注栏上滚动也会带着网页一起滚。
 - **彩色波浪线**：`text-decoration: underline wavy`，嵌套层级颜色不同；点击波浪线跳到对应批注卡片。
 - **按页面绑定**：刷新页面后按「原文 + 出现序号」重新定位并恢复波浪线。
 - **分组**：分组可绑定域名（子域自动匹配），记录时自动归入第一个匹配分组；设置页可随时移动。
@@ -124,6 +125,7 @@ node tests/serve.mjs        # 打印 PORT，供浏览器打开 tests/*.html 冒�
 - `tests/background.test.mjs`：用 Node VM 模拟 chrome API，联调 background ↔ 真实 sync-server。
 - `tests/render-smoke.html`：浏览器里验证嵌套波浪线、颜色、跨标签节点匹配、选区父级识别。
 - `tests/content-smoke.html`：用 chrome API 桩加载真实 `content.js`，验证 UI 注入、批注栏、卡片缩进、toast、选区采集。
+- `tests/comment-scroll-smoke.html`：验证批注卡片随页面滚动精确位移（滚动 60px → 卡片 top 同步 -60px）。
 
 无头浏览器冒烟（Edge/Chrome）：
 

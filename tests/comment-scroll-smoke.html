@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>English Notebook comment scroll smoke</title></head>
+<body>
+  <p id="p1">Alpha sentence one for layout test.</p>
+  <div style="height:1400px"></div>
+  <p id="p2">Beta sentence two for layout test.</p>
+
+  <script>
+    window.__onMessage = null;
+    window.chrome = {
+      runtime: {
+        sendMessage: function (msg, cb) {
+          if (msg && msg.type === 'GET_PAGE_STATE') {
+            var C = window.ENB;
+            var s = C.normalizeState(null);
+            var a = C.addItem(s, {
+              text: 'Alpha sentence one for layout test.',
+              translation: '甲句译文',
+              pageUrl: location.href,
+            });
+            var b = C.addItem(s, {
+              text: 'Beta sentence two for layout test.',
+              translation: '乙句译文',
+              pageUrl: location.href,
+            });
+            cb({ ok: true, items: [a, b], sync: { serverUp: true, configured: true }, promptSetup: false });
+            return;
+          }
+          cb({ ok: true });
+        },
+        onMessage: { addListener: function (fn) { window.__onMessage = fn; } },
+        lastError: undefined,
+        openOptionsPage: function () { /* noop */ },
+      },
+    };
+  </script>
+
+  <script src="../extension/core.js"></script>
+  <script src="../extension/render.js"></script>
+  <script src="../extension/content.js"></script>
+
+  <script>
+    (function () {
+      var results = [];
+      var errors = [];
+      var scrollEvents = 0;
+      window.addEventListener('scroll', function () { scrollEvents++; }, { passive: true });
+      function push(k, v) { results.push(k + '=' + v); }
+      window.addEventListener('error', function (e) { errors.push(String(e.message || e.error)); });
+
+      function report() {
+        if (errors.length) results.push('errors=' + errors.join('|'));
+        var out = results.join(';');
+        document.body.setAttribute('data-smoke', out);
+        document.title = 'SMOKE ' + out;
+        try {
+          fetch('/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result: out }),
+          });
+        } catch (e) { /* ignore */ }
+      }
+
+      window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+          var host = document.getElementById('enb-ui-host');
+          var shadow = host && host.shadowRoot;
+          var edge = shadow && shadow.querySelector('#enb-edge');
+          if (edge) edge.click();
+
+          setTimeout(function () {
+            var cards = shadow ? Array.prototype.slice.call(shadow.querySelectorAll('.card')) : [];
+            push('cards', cards.length);
+            push('position', cards.length ? getComputedStyle(cards[0]).position : '');
+            var top1 = cards.length ? parseFloat(cards[0].style.top) : NaN;
+            var top2 = cards.length > 1 ? parseFloat(cards[1].style.top) : NaN;
+            push('top1', isNaN(top1) ? 'nan' : top1);
+            push('top2', isNaN(top2) ? 'nan' : top2);
+            var firstSpan = document.querySelector('.enb-ann');
+            push('spanTopBefore', firstSpan ? Math.round(firstSpan.getBoundingClientRect().top) : 'nan');
+
+            window.scrollTo(0, 60);
+            window.dispatchEvent(new Event('scroll'));
+
+            setTimeout(function () {
+              var moved = shadow ? Array.prototype.slice.call(shadow.querySelectorAll('.card')) : [];
+              var next1 = moved.length ? parseFloat(moved[0].style.top) : NaN;
+              var next2 = moved.length > 1 ? parseFloat(moved[1].style.top) : NaN;
+              var spanAfter = document.querySelector('.enb-ann');
+              push('spanTopAfter', spanAfter ? Math.round(spanAfter.getBoundingClientRect().top) : 'nan');
+              push('moved1', !isNaN(top1) && !isNaN(next1) ? Math.round(next1 - top1) : 'nan');
+              push('moved2', !isNaN(top2) && !isNaN(next2) ? Math.round(next2 - top2) : 'nan');
+              push('scrollY', Math.round(window.scrollY));
+              push('scrollEvents', scrollEvents);
+              report();
+            }, 600);
+          }, 400);
+        }, 900);
+      });
+    })();
+  </script>
+</body>
+</html>
