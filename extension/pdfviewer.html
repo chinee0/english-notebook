@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>English Notebook · PDF</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #525659; }
+    body { padding: 56px 372px 28px 12px; min-height: 100vh; }
+    #pdf-toolbar {
+      position: fixed; top: 0; left: 0; right: 0; height: 46px; z-index: 20;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      background: #1f2328; color: #f3f4f6; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    #pdf-toolbar strong { font-size: 14px; }
+    #pdf-status { color: #cbd5e1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #pdf-toolbar .spacer { flex: 1; }
+    #pdf-toolbar a { color: #93c5fd; text-decoration: none; }
+    #pdf-toolbar a:hover { text-decoration: underline; }
+    #pdf-container { display: flex; flex-direction: column; align-items: center; }
+    .pdf-page { position: relative; margin: 0 0 18px; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.4); }
+    .pdf-page canvas { display: block; }
+    .textLayer {
+      position: absolute; inset: 0; overflow: hidden; line-height: 1;
+      text-size-adjust: none; -webkit-text-size-adjust: none; forced-color-adjust: none;
+      transform-origin: 0 0;
+    }
+    .textLayer span, .textLayer br {
+      color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%;
+    }
+    .textLayer ::selection { background: rgba(59, 130, 246, .35); }
+    #pdf-error { color: #fecaca; max-width: 720px; margin: 80px auto; font: 14px/1.7 "Microsoft YaHei", sans-serif; }
+    @media (max-width: 900px) { body { padding-right: 12px; } }
+  </style>
+</head>
+<body>
+  <header id="pdf-toolbar">
+    <strong>English Notebook · PDF</strong>
+    <span id="pdf-status">加载中…</span>
+    <span class="spacer"></span>
+    <a id="pdf-original" href="#" target="_blank" rel="noopener">原始 PDF</a>
+  </header>
+
+  <div id="pdf-container"></div>
+  <div id="pdf-error" hidden></div>
+
+  <script src="vendor/pdf.min.js"></script>
+  <script src="pdfviewer.js"></script>
+  <script src="core.js"></script>
+  <script src="render.js"></script>
+  <script src="content.js"></script>
+</body>
+</html>

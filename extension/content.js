@@ -49,6 +49,19 @@
     });
   }
 
+  /* 内置 PDF 阅读器会用 __ENB_PAGE_URL 把批注绑定到 PDF 本身，而不是 viewer URL */
+  function pageUrl() {
+    return (window.__ENB_PAGE_URL && typeof window.__ENB_PAGE_URL === 'string')
+      ? window.__ENB_PAGE_URL
+      : location.href;
+  }
+
+  function pageTitle() {
+    return (window.__ENB_PAGE_TITLE && typeof window.__ENB_PAGE_TITLE === 'string')
+      ? window.__ENB_PAGE_TITLE
+      : document.title;
+  }
+
   /* ---------------- 初始化 ---------------- */
 
   function init() {
@@ -60,10 +73,16 @@
     reloadPageState();
     loadStudyData();
     initVoices();
+    try {
+      document.documentElement.setAttribute('data-enb-ext', chrome.runtime.id || '');
+    } catch (e) { /* ignore */ }
+    window.addEventListener('enb-rerender', function () {
+      reloadPageState();
+    });
   }
 
   async function reloadPageState() {
-    const resp = await send({ type: 'GET_PAGE_STATE', url: location.href, title: document.title });
+    const resp = await send({ type: 'GET_PAGE_STATE', url: pageUrl(), title: pageTitle() });
     if (!resp || !resp.ok) return;
     pageItems = resp.items || [];
     if (resp.sync) sync = resp.sync;
@@ -138,6 +157,7 @@
       hideBubbleMenu();
       if (act.dataset.act === 'review') openReviewPanel();
       else if (act.dataset.act === 'panel') togglePanel(true);
+      else if (act.dataset.act === 'capture') send({ type: 'TRANSLATE_SELECTION' });
       else if (act.dataset.act === 'options') send({ type: 'OPEN_OPTIONS' });
     });
     qs('enb-review-close').addEventListener('click', closeReviewPanel);
@@ -435,7 +455,8 @@
     const resp = await send({
       type: 'REVIEW_TRANSLATION',
       itemId: item.id,
-      pageUrl: location.href,
+      pageUrl: pageUrl(),
+      pageTitle: pageTitle(),
       text: item.text,
       userTranslation: userTranslation,
     });
@@ -729,7 +750,12 @@
   chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
     if (!message) return;
     if (message.type === 'REQUEST_CAPTURE') {
-      sendResponse(R.captureSelection(document.body, window.getSelection(), '#' + HOST_ID));
+      const capture = R.captureSelection(document.body, window.getSelection(), '#' + HOST_ID);
+      if (capture) {
+        capture.pageUrl = pageUrl();
+        capture.pageTitle = pageTitle();
+      }
+      sendResponse(capture);
       return;
     }
     if (message.type === 'STATE_UPDATED') {
@@ -798,6 +824,7 @@
 
       '<button id="enb-bubble" class="bubble" title="English Notebook">📚<span id="enb-bubble-badge" class="bubble-badge" hidden></span></button>' +
       '<div id="enb-bubble-menu" class="bubble-menu" hidden>' +
+        '<button data-act="capture">📌 记录选中</button>' +
         '<button data-act="review">📖 复习</button>' +
         '<button data-act="panel">📝 批注栏</button>' +
         '<button data-act="options">⚙ 设置 / 选择数据文件</button>' +

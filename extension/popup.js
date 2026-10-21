@@ -18,6 +18,8 @@ async function init() {
     $('enb-ver').textContent = '扩展已运行 · v' + chrome.runtime.getManifest().version;
   } catch (e) { /* ignore */ }
 
+  maybeShowPdfButton();
+
   const summary = await send({ type: 'GET_STATE_SUMMARY' });
   if (!summary || !summary.ok) {
     $('stats').textContent = '后台没有响应';
@@ -39,6 +41,24 @@ async function init() {
   } else {
     $('sync').textContent = '已连接：' + (file.name || '数据文件');
   }
+}
+
+function maybeShowPdfButton() {
+  try {
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      const url = (tabs && tabs[0] && tabs[0].url) || '';
+      if (!/\.pdf(\?|#|$)/i.test(url)) return;
+      const btn = $('btn-pdf');
+      if (!btn) return;
+      btn.hidden = false;
+      btn.addEventListener('click', function () {
+        chrome.tabs.create({
+          url: chrome.runtime.getURL('pdfviewer.html?file=' + encodeURIComponent(url)),
+        });
+        window.close();
+      });
+    });
+  } catch (e) { /* ignore */ }
 }
 
 $('btn-capture').addEventListener('click', async function () {

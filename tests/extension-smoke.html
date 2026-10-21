@@ -30,6 +30,7 @@
             ';panel=' + !!(shadow && shadow.querySelector('#enb-panel')) +
             ';edge=' + !!(shadow && shadow.querySelector('#enb-edge')) +
             ';setup=' + !!(shadow && shadow.querySelector('#enb-setup')) +
+            ';ext=' + (document.documentElement.getAttribute('data-enb-ext') || '') +
             ';attempts=' + attempts;
           report(out);
           return;
