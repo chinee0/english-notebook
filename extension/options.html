@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>English Notebook · 设置与批注管�?/title>
+  <title>English Notebook · 设置与批注管理</title>
   <style>
     :root {
       --bg: #f7f8fa;
@@ -96,14 +96,14 @@
 <body>
   <header>
     <h1>English Notebook</h1>
-    <span class="sub">设置与批注管�?· v0.9.2</span>
+    <span class="sub">设置与批注管理 · v0.9.2</span>
   </header>
 
   <main>
     <section>
       <h2>数据文件（直接读写）</h2>
-      <p class="desc">用系统文件选择器授权一�?JSON 文件，扩展直接读写它。不经过本地 HTTP 服务，也不会 git commit / push�?/p>
-      <div id="file-status" class="status">检测中�?/div>
+      <p class="desc">用系统文件选择器授权一个 JSON 文件，扩展直接读写它。不经过本地 HTTP 服务，也不会 git commit / push。</p>
+      <div id="file-status" class="status">检测中…</div>
       <div class="actions">
         <button id="btn-choose-file" class="primary">选择已有 JSON 文件</button>
         <button id="btn-new-file">新建数据文件</button>
@@ -112,54 +112,55 @@
       </div>
       <details class="help">
         <summary>说明</summary>
-        <p class="muted">浏览器不允许扩展按任意绝对路径直接读写文件，所以首次需要你手动选择一次；之后扩展自动读写。文件放在哪由你决定（本地磁盘、OneDrive/坚果云同步目录都可以）。换文件时重新选择即可�?/p>
-        <p class="muted">如果选完文件后没有弹出写权限窗口：点「重新授权（允许写入）」。仍不弹时，扩展会引导你用“保存方式”重选同一个文件——�?same 文件并确认替换即可，扩展会先读取原内容再合并，不会清空�?/p>
+        <p class="muted">浏览器不允许扩展按任意绝对路径直接读写文件，所以首次需要你手动选择一次；之后扩展自动读写。文件放在哪由你决定（本地磁盘、OneDrive/坚果云同步目录都可以）。换文件时重新选择即可。</p>
+        <p class="muted">如果选完文件后没有弹出写权限窗口：点「重新授权（允许写入）」。仍不弹时，扩展会引导你用“保存方式”重选同一个文件——选 same 文件并确认替换即可，扩展会先读取原内容再合并，不会清空。</p>
       </details>
       <label style="display:flex;align-items:center;gap:8px;margin:10px 0;font-size:13px;">
         <input id="pdf-auto-open" type="checkbox" />
-        打开 .pdf 链接时自动用内置 PDF 阅读器（推荐，否�?Edge 内置阅读器无法批注）
+        打开 .pdf 链接时自动用内置 PDF 阅读器（推荐，否则 Edge 内置阅读器无法批注）
       </label>
     </section>
 
     <section>
       <h2>翻译 Provider</h2>
-      <p class="desc">默认使用免费 MyMemory；OpenAI 兼容接口（含 DeepSeek）与「我�?+ AI 审查」共用同一�?LLM 配置�?/p>
+      <p class="desc">默认使用免费 MyMemory；OpenAI 兼容接口（含 DeepSeek）与「我译 + AI 审查」共用同一份 LLM 配置。</p>
       <div class="row">
         <label class="field"><span>Provider</span>
           <select id="trans-provider">
-            <option value="mymemory">MyMemory（免费，无需 Key�?/option>
-            <option value="google">Google Translate �?Key 接口（国内可能不可用�?/option>
+            <option value="mymemory">MyMemory（免费，无需 Key）</option>
+            <option value="google">Google Translate 免 Key 接口（国内可能不可用）</option>
             <option value="openai">OpenAI 兼容 / DeepSeek（共用配置）</option>
-            <option value="custom">自定�?HTTP 接口</option>
-            <option value="none">不自动翻�?/option>
+            <option value="custom">自定义 HTTP 接口</option>
+            <option value="none">不自动翻译</option>
           </select>
         </label>
         <label class="field"><span>目标语言</span><input id="trans-lang" type="text" placeholder="zh-CN" /></label>
       </div>
 
-      <h3 class="subhead">共用 LLM 配置（OpenAI 兼容 / DeepSeek�?/h3>
-      <p class="desc">这份配置同时用于两件事：�?Provider 选「OpenAI 兼容 / DeepSeek」时的翻译；�?批注卡片的「我�?+ AI 审查」。翻译�?MyMemory 时，它只用于 AI 审查�?/p>
+      <h3 class="subhead">共用 LLM 配置（OpenAI 兼容 / DeepSeek）</h3>
+      <p class="desc">这份配置同时用于两件事：① Provider 选「OpenAI 兼容 / DeepSeek」时的翻译；② 批注卡片的「我译 + AI 审查」。翻译选 MyMemory 时，它只用于 AI 审查。</p>
       <div id="openai-fields">
         <div class="row">
           <label class="field"><span>Base URL</span><input id="openai-base" type="text" placeholder="https://api.deepseek.com" /></label>
           <label class="field"><span>模型</span><input id="openai-model" type="text" placeholder="deepseek-chat" /></label>
         </div>
-        <label class="field"><span>API Key（只存本机扩展存储，不上�?git�?/span><input id="openai-key" type="password" placeholder="sk-..." /></label>
-        <p class="muted">DeepSeek 就填这份配置：Base URL <code>https://api.deepseek.com</code>，模�?<code>deepseek-chat</code>�?/p>
+        <label class="field"><span>API Key（只存本机扩展存储，不上传 git）</span><input id="openai-key" type="password" placeholder="sk-..." /></label>
+        <p class="muted">DeepSeek 就填这份配置：Base URL <code>https://api.deepseek.com</code>，模型 <code>deepseek-chat</code>。</p>
         <label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-size:13px;">
           <input id="dict-enabled" type="checkbox" />
-          单词记录时用 AI 生成词典式释义（美式音标 / 词�?/ 中英释义 / 例句�?        </label>
+          单词记录时用 AI 生成词典式释义（美式音标 / 词性 / 中英释义 / 例句）
+        </label>
       </div>
 
       <div id="custom-fields">
-        <label class="field"><span>请求地址（GET 时可�?{{text}} / {{lang}} 占位�?/span><input id="custom-url" type="text" placeholder="https://example.com/translate?q={{text}}&to={{lang}}" /></label>
+        <label class="field"><span>请求地址（GET 时可用 {{text}} / {{lang}} 占位）</span><input id="custom-url" type="text" placeholder="https://example.com/translate?q={{text}}&to={{lang}}" /></label>
         <div class="row">
           <label class="field"><span>Method</span>
             <select id="custom-method"><option>GET</option><option>POST</option></select>
           </label>
-          <label class="field"><span>结果字段路径（点号，�?data.translation�?/span><input id="custom-result" type="text" placeholder="translation" /></label>
+          <label class="field"><span>结果字段路径（点号，如 data.translation）</span><input id="custom-result" type="text" placeholder="translation" /></label>
         </div>
-        <label class="field"><span>额外请求�?JSON（可选）</span><textarea id="custom-headers" rows="2" placeholder='{"Authorization":"Bearer xxx"}'></textarea></label>
+        <label class="field"><span>额外请求头 JSON（可选）</span><textarea id="custom-headers" rows="2" placeholder='{"Authorization":"Bearer xxx"}'></textarea></label>
         <label class="field"><span>POST 请求体模板（{{text}} 会被替换为转义后的原文）</span><textarea id="custom-body" rows="2" placeholder='{"text":"{{text}}","target":"{{lang}}"}'></textarea></label>
       </div>
 
@@ -174,10 +175,10 @@
 
     <section>
       <h2>分组</h2>
-      <p class="desc">分组可绑定域名；在绑定网站右键记录时，批注会自动归入第一个匹配的分组�?/p>
+      <p class="desc">分组可绑定域名；在绑定网站右键记录时，批注会自动归入第一个匹配的分组。</p>
       <div class="row">
-        <label class="field"><span>新分组名�?/span><input id="group-name" type="text" placeholder="例如 BBC 新闻" /></label>
-        <label class="field"><span>绑定域名（空�?逗号分隔，可留空�?/span><input id="group-hosts" type="text" placeholder="bbc.com" /></label>
+        <label class="field"><span>新分组名称</span><input id="group-name" type="text" placeholder="例如 BBC 新闻" /></label>
+        <label class="field"><span>绑定域名（空格/逗号分隔，可留空）</span><input id="group-hosts" type="text" placeholder="bbc.com" /></label>
       </div>
       <div class="actions"><button id="btn-add-group" class="primary">新建分组</button></div>
       <div id="group-list" class="list" style="margin-top:10px;"></div>
@@ -185,7 +186,7 @@
 
     <section>
       <h2>全部批注</h2>
-      <p class="desc">按页面绑定；这里可以全局搜索、改译文、换分组或删除�?/p>
+      <p class="desc">按页面绑定；这里可以全局搜索、改译文、换分组或删除。</p>
       <div class="toolbar">
         <input id="record-search" type="text" placeholder="搜索原文 / 译文 / 页面标题" />
         <button id="btn-export">导出 JSON</button>
