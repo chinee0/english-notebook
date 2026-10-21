@@ -94,14 +94,18 @@
     updateEdge();
     maybePromptFile(resp.promptSetup);
 
-    /* PDF 文字层渲染/字体加载是异步的，锚点第一次可能没匹配上；有限次数重试 */
-    if (pageItems.length && anchorRetry < 3) {
+    /* PDF 文字层渲染/字体加载是异步的，锚点第一次可能没匹配上；有限次数重试，别打断正在进行的选区 */
+    if (pageItems.length && anchorRetry < 2) {
       const missed = pageItems.some(function (item) {
         return !R.getSpan(item.id, document.body);
       });
       if (missed) {
         anchorRetry++;
-        setTimeout(reloadPageState, 500);
+        setTimeout(function () {
+          const sel = window.getSelection();
+          if (sel && !sel.isCollapsed && String(sel).trim()) return;
+          reloadPageState();
+        }, 500);
       } else {
         anchorRetry = 0;
       }
@@ -503,6 +507,11 @@
     if (!cards.length) return;
 
     const listRect = list.getBoundingClientRect();
+    list.classList.remove('flow');
+    cards.forEach(function (card) {
+      card.style.position = '';
+      card.style.margin = '';
+    });
     const entries = cards.map(function (card) {
       const span = R.getSpan(card.dataset.cardId, document.body);
       const rect = span ? span.getBoundingClientRect() : null;
@@ -536,6 +545,21 @@
 
     /* 没有锚点的卡片按顺序堆叠显示，至少保证能阅读/编辑批注 */
     const unanchored = entries.filter(function (entry) { return entry.anchorTop === null; });
+
+    /* 全部批注都定位失败（常见于 PDF 文字层）：改成正常流 + 面板可滚动，避免卡片叠在面板外看不见 */
+    if (unanchored.length && unanchored.length === entries.length) {
+      list.classList.add('flow');
+      entries.forEach(function (entry) {
+        entry.card.style.display = '';
+        entry.card.style.position = 'static';
+        entry.card.style.top = '';
+        entry.card.style.margin = '0 0 10px';
+      });
+      const hintAll = list.querySelector('.scroll-hint');
+      if (hintAll) hintAll.hidden = true;
+      return;
+    }
+
     if (unanchored.length) {
       let top = 8;
       if (positioned.length) {
@@ -990,6 +1014,7 @@
     '.icon:hover { background: var(--enb-hover); color: var(--enb-text); }',
     '.panel-head .icon:first-of-type { margin-left: auto; }',
     '.list { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }',
+    '.list.flow { overflow-y: auto; padding: 12px; }',
     '.card { position: absolute; left: 10px; right: 10px; will-change: top; background: var(--enb-bg); border: 1px solid var(--enb-border); border-left: 3px solid var(--enb-accent); border-radius: 8px; padding: 8px 10px; }',
     '.card.active { box-shadow: 0 0 0 2px var(--enb-accent-soft); }',
     '.quote-row { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 4px; }',
