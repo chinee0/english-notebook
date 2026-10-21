@@ -88,25 +88,57 @@
     return { chars: chars, text: chars.map(function (c) { return c.ch; }).join('') };
   }
 
+  function occurrencePosition(text, needle, occurrence) {
+    let from = 0;
+    let count = 0;
+    while (true) {
+      const i = text.indexOf(needle, from);
+      if (i === -1) return -1;
+      if (count === (Number(occurrence) || 0)) return i;
+      count++;
+      from = i + 1;
+    }
+  }
+
   function findTextRange(root, rawText, occurrence, exclude) {
     const needle = collapse(rawText);
     if (!needle) return null;
     const idx = buildIndex(root, exclude);
-    let from = 0;
-    let count = 0;
-    let pos = -1;
-    while (true) {
-      const i = idx.text.indexOf(needle, from);
-      if (i === -1) break;
-      if (count === (Number(occurrence) || 0)) { pos = i; break; }
-      count++;
-      from = i + 1;
+
+    function rangeAt(pos, length) {
+      const start = idx.chars[pos];
+      const end = idx.chars[pos + length - 1];
+      if (!start || !end) return null;
+      return { startNode: start.node, startOffset: start.start, endNode: end.node, endOffset: end.end };
     }
-    if (pos < 0) return null;
-    const start = idx.chars[pos];
-    const end = idx.chars[pos + needle.length - 1];
-    if (!start || !end) return null;
-    return { startNode: start.node, startOffset: start.start, endNode: end.node, endOffset: end.end };
+
+    let pos = occurrencePosition(idx.text, needle, occurrence);
+    if (pos >= 0) return rangeAt(pos, needle.length);
+
+    /* 兜底：忽略所有空白再匹配。PDF.js 文字层相邻 span 之间常常没有空格文本节点，
+       选中的 "Free Electrons" 在页面索引里会变成 "FreeElectrons"。 */
+    const compactNeedle = needle.replace(/\s+/g, '');
+    if (compactNeedle) {
+      let compact = '';
+      const map = [];
+      idx.chars.forEach(function (c, i) {
+        if (/\s/.test(c.ch)) return;
+        compact += c.ch;
+        map.push(i);
+      });
+      let cpos = occurrencePosition(compact, compactNeedle, occurrence);
+      if (cpos < 0 && Number(occurrence) > 0) {
+        cpos = occurrencePosition(compact, compactNeedle, 0);
+      }
+      if (cpos >= 0) {
+        const startIdx = map[cpos];
+        const endIdx = map[cpos + compactNeedle.length - 1];
+        if (startIdx !== undefined && endIdx !== undefined) {
+          return rangeAt(startIdx, endIdx - startIdx + 1);
+        }
+      }
+    }
+    return null;
   }
 
   function countBefore(root, rawText, node, offset, exclude) {

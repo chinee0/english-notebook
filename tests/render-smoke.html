@@ -7,6 +7,7 @@
 <body>
   <p id="p1">The committee has yet to reach a decision on the proposal.</p>
   <p id="p2">The committee has <b>yet to reach</b> a decision across nodes.</p>
+  <p id="p3"><span>Free</span><span>Electrons</span> in the device tree.</p>
 
   <script src="../extension/core.js"></script>
   <script src="../extension/render.js"></script>
@@ -35,16 +36,26 @@
             pageUrl: pageUrl,
             parentId: parent.id,
           });
+          /* PDF 文字层风格：两个相邻 span 之间没有空格文本节点 */
+          var split = C.addItem(state, {
+            text: 'Free Electrons',
+            translation: '自由电子',
+            pageUrl: pageUrl,
+          });
 
           push('parentDepth', C.depthOf(state, parent.id));
           push('childDepth', C.depthOf(state, child.id));
 
-          var res = R.applyAnnotations(document.body, [parent, child], {});
+          var res = R.applyAnnotations(document.body, [parent, child, split], {});
           push('applied', res.applied);
           push('missed', res.missed);
 
           var spans = document.querySelectorAll('.enb-ann');
           push('spans', spans.length);
+
+          var splitSpan = document.querySelector('.enb-ann[data-ann-id="' + split.id + '"]');
+          push('splitSpan', !!splitSpan);
+          push('splitText', splitSpan ? splitSpan.textContent : '');
 
           var parentSpan = document.querySelector('.enb-ann[data-ann-id="' + parent.id + '"]');
           var childSpan = document.querySelector('.enb-ann[data-ann-id="' + child.id + '"]');
