@@ -5,6 +5,7 @@
 const $ = function (id) { return document.getElementById(id); };
 
 let summary = null;
+let cachedHandle = null;
 
 function send(message) {
   return new Promise(function (resolve) {
@@ -39,6 +40,7 @@ async function load() {
     setStatus($('file-status'), '无法连接扩展后台，请在 chrome://extensions 里重新加载扩展。', 'bad');
     return;
   }
+  try { cachedHandle = await window.ENB.FileStore.getHandle(); } catch (e) { cachedHandle = null; }
   summary = resp;
   fillSettings();
   loadFileStatus();
@@ -89,7 +91,7 @@ function renderFileStatus(file) {
   setStatus(el, '已连接：' + (file.name || '数据文件') + '\n大小 ' + (file.size || 0) + ' 字节' + (modified ? ' · 最后修改 ' + modified : ''), 'ok');
 }
 
-async function pickFile(saveAs) {
+async function pickFile(saveAs, suggestedName) {
   if (typeof window.showOpenFilePicker !== 'function' && typeof window.showSaveFilePicker !== 'function') {
     window.alert('当前浏览器不支持文件选择器（File System Access API），请使用 Edge 或 Chrome。');
     return;
@@ -101,20 +103,24 @@ async function pickFile(saveAs) {
     let handle;
     if (saveAs) {
       if (typeof window.showSaveFilePicker !== 'function') { window.alert('当前浏览器不支持“新建文件”，请改用“选择已有文件”'); return; }
-      handle = await window.showSaveFilePicker(Object.assign({ suggestedName: 'english-notes.json' }, options));
+      handle = await window.showSaveFilePicker(Object.assign({ suggestedName: suggestedName || 'english-notes.json' }, options));
     } else {
       const picks = await window.showOpenFilePicker(Object.assign({ multiple: false }, options));
       handle = picks && picks[0];
     }
     if (!handle) return;
-    /* 先请求权限，再保存句柄；即使权限被拒也保留句柄，方便用户点“重新授权” */
-    const permission = await window.ENB.FileStore.ensurePermission(handle);
+    cachedHandle = handle;
     await window.ENB.FileStore.setHandle(handle);
     const resp = await send({ type: 'FILE_SELECTED' });
     renderFileStatus(resp && resp.file);
     await load();
-    if (permission !== 'granted') {
-      setStatus($('file-status'), '已选择文件，但浏览器没有给写权限。请再点一次「重新授权」，在弹窗中选“允许编辑”。', 'bad');
+    /* 打开已有文件时不要在这里立刻 requestPermission：文件选择器已经把 user activation 用掉了，
+       这时请求写权限会被静默拒绝，还可能让浏览器记住 denied。留到用户点“重新授权”时再请求。 */
+    if (!saveAs) {
+      const permission = await window.ENB.FileStore.permission(handle);
+      if (permission !== 'granted') {
+        setStatus($('file-status'), '已选择文件。请点一次「重新授权」来允许写入（这时才会弹授权框）。', 'bad');
+      }
     }
   } catch (e) {
     if (e && e.name !== 'AbortError') window.alert('选择文件失败：' + ((e && e.message) || e));
@@ -122,13 +128,31 @@ async function pickFile(saveAs) {
 }
 
 async function reauthorizeFile() {
-  const handle = await window.ENB.FileStore.getHandle();
+  let handle = cachedHandle;
+  if (!handle) {
+    try { handle = await window.ENB.FileStore.getHandle(); } catch (e) { /* ignore */ }
+  }
   if (!handle) { window.alert('还没有选择数据文件'); return; }
-  const permission = await window.ENB.FileStore.ensurePermission(handle);
+  cachedHandle = handle;
+
+  /* 这里是新的用户点击，直接 requestPermission 才会弹窗 */
+  let permission = 'denied';
+  try {
+    permission = await handle.requestPermission({ mode: 'readwrite' });
+  } catch (e) {
+    permission = 'denied';
+  }
   if (permission !== 'granted') {
-    setStatus($('file-status'), '没有获得写权限：请在授权弹窗里选“允许编辑”，或改用“新建数据文件”。', 'bad');
+    const ok = window.confirm(
+      '浏览器没有弹出写权限窗口。\n\n' +
+      '可以改用“保存方式”重新选择同一个文件来拿写权限：\n' +
+      '选同一个 english-notes.json，确认“替换”即可；文件内容不会被清空，扩展会先读再合并。\n\n' +
+      '现在重新选择吗？'
+    );
+    if (ok) await pickFile(true, (handle && handle.name) || 'english-notes.json');
     return;
   }
+
   const resp = await send({ type: 'FILE_SELECTED' });
   renderFileStatus(resp && resp.file);
   await load();
@@ -136,6 +160,7 @@ async function reauthorizeFile() {
 
 async function clearFile() {
   if (!window.confirm('断开数据文件？浏览器里的本地数据仍保留，但不会再写入这个文件。')) return;
+  cachedHandle = null;
   try { await window.ENB.FileStore.clearHandle(); } catch (e) { /* ignore */ }
   const resp = await send({ type: 'CLEAR_FILE' });
   renderFileStatus(resp && resp.file);

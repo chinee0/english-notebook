@@ -65,9 +65,13 @@
   async function ensurePermission(handle) {
     if (!handle || typeof handle.requestPermission !== 'function') return 'unsupported';
     try {
+      if (typeof handle.queryPermission === 'function') {
+        const current = await handle.queryPermission({ mode: 'readwrite' });
+        if (current === 'granted') return 'granted';
+      }
       return await handle.requestPermission({ mode: 'readwrite' });
     } catch (e) {
-      return e && e.name === 'AbortError' ? 'denied' : 'denied';
+      return 'denied';
     }
   }
 
