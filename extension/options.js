@@ -106,15 +106,15 @@ async function pickFile(saveAs) {
       handle = picks && picks[0];
     }
     if (!handle) return;
+    /* 先请求权限，再保存句柄；即使权限被拒也保留句柄，方便用户点“重新授权” */
     const permission = await window.ENB.FileStore.ensurePermission(handle);
-    if (permission !== 'granted') {
-      setStatus($('file-status'), '没有获得该文件的读写权限，请重试。', 'bad');
-      return;
-    }
     await window.ENB.FileStore.setHandle(handle);
     const resp = await send({ type: 'FILE_SELECTED' });
     renderFileStatus(resp && resp.file);
     await load();
+    if (permission !== 'granted') {
+      setStatus($('file-status'), '已选择文件，但浏览器没有给写权限。请再点一次「重新授权」，在弹窗中选“允许编辑”。', 'bad');
+    }
   } catch (e) {
     if (e && e.name !== 'AbortError') window.alert('选择文件失败：' + ((e && e.message) || e));
   }
@@ -124,7 +124,10 @@ async function reauthorizeFile() {
   const handle = await window.ENB.FileStore.getHandle();
   if (!handle) { window.alert('还没有选择数据文件'); return; }
   const permission = await window.ENB.FileStore.ensurePermission(handle);
-  if (permission !== 'granted') { window.alert('没有获得读写权限'); return; }
+  if (permission !== 'granted') {
+    setStatus($('file-status'), '没有获得写权限：请在授权弹窗里选“允许编辑”，或改用“新建数据文件”。', 'bad');
+    return;
+  }
   const resp = await send({ type: 'FILE_SELECTED' });
   renderFileStatus(resp && resp.file);
   await load();
