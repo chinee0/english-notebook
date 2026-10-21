@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>English Notebook bubble/review smoke</title></head>
+<body>
+  <p id="p1">Alpha sentence one for layout test.</p>
+
+  <script>
+    window.__onMessage = null;
+    window.__sent = [];
+    var study = {
+      reviews: {},
+      items: [
+        { id: 's1', type: 'word', text: 'committee', meaning: '委员会', note: '集合名词', sourceItemId: '', pageUrl: location.href },
+        { id: 's2', type: 'phrase', text: 'reach a decision', meaning: '作出决定', note: '', sourceItemId: '', pageUrl: location.href },
+        { id: 's3', type: 'usage', text: 'has yet to', meaning: '尚未', note: '后接动词原形', sourceItemId: '', pageUrl: location.href },
+      ],
+    };
+    var reviewCalls = 0;
+    var markCalls = 0;
+    var pageItem = null;
+
+    window.chrome = {
+      runtime: {
+        sendMessage: function (msg, cb) {
+          window.__sent.push(msg);
+          if (!msg) { cb({ ok: true }); return; }
+          if (msg.type === 'GET_PAGE_STATE') {
+            var C = window.ENB;
+            var s = C.normalizeState(null);
+            pageItem = C.addItem(s, {
+              text: 'Alpha sentence one for layout test.',
+              translation: '甲句译文',
+              pageUrl: location.href,
+            });
+            study.items.forEach(function (it) { it.sourceItemId = pageItem.id; });
+            cb({ ok: true, items: [pageItem], sync: { serverUp: true, configured: true }, promptSetup: false });
+            return;
+          }
+          if (msg.type === 'GET_STUDY_DATA') {
+            cb({ ok: true, reviews: study.reviews, items: study.items });
+            return;
+          }
+          if (msg.type === 'REVIEW_TRANSLATION') {
+            reviewCalls++;
+            var review = {
+              itemId: msg.itemId,
+              pageUrl: msg.pageUrl,
+              original: msg.text,
+              userTranslation: msg.userTranslation,
+              verdict: '基本准确',
+              feedback: '不错，注意时态。',
+              createdAt: new Date().toISOString(),
+            };
+            study.reviews[msg.itemId] = review;
+            study.items.push({
+              id: 's4', type: 'word', text: 'decision', meaning: '决定', note: '',
+              sourceItemId: msg.itemId, pageUrl: msg.pageUrl,
+            });
+            cb({ ok: true, review: review, items: study.items, reviews: study.reviews });
+            return;
+          }
+          if (msg.type === 'MARK_STUDY_REVIEWED') {
+            markCalls++;
+            cb({ ok: true, items: study.items });
+            return;
+          }
+          cb({ ok: true });
+        },
+        onMessage: { addListener: function (fn) { window.__onMessage = fn; } },
+        lastError: undefined,
+        openOptionsPage: function () { /* noop */ },
+      },
+    };
+  </script>
+
+  <script src="../extension/core.js"></script>
+  <script src="../extension/render.js"></script>
+  <script src="../extension/content.js"></script>
+
+  <script>
+    (function () {
+      var results = [];
+      var errors = [];
+      function push(k, v) { results.push(k + '=' + v); }
+      window.addEventListener('error', function (e) { errors.push(String(e.message || e.error)); });
+      function report() {
+        if (errors.length) results.push('errors=' + errors.join('|'));
+        var out = results.join(';');
+        document.body.setAttribute('data-smoke', out);
+        document.title = 'SMOKE ' + out;
+        try {
+          fetch('/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result: out }),
+          });
+        } catch (e) { /* ignore */ }
+      }
+
+      window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+          var host = document.getElementById('enb-ui-host');
+          var shadow = host && host.shadowRoot;
+          try {
+            var bubble = shadow && shadow.querySelector('#enb-bubble');
+            push('bubble', !!bubble);
+            push('badge', shadow.querySelector('#enb-bubble-badge').textContent);
+            push('badgeHidden', shadow.querySelector('#enb-bubble-badge').hidden);
+
+            // 打开气泡菜单 → 复习
+            bubble.click();
+            push('menuOpen', !shadow.querySelector('#enb-bubble-menu').hidden);
+            shadow.querySelector('#enb-bubble-menu [data-act="review"]').click();
+            push('reviewOpen', !shadow.querySelector('#enb-review').hidden);
+            push('reviewCount', shadow.querySelector('#enb-review-count').textContent);
+
+            // 筛选词组
+            shadow.querySelector('#enb-review-filters [data-type="phrase"]').click();
+            push('phraseText', shadow.querySelector('.flash-text').textContent);
+            push('meaningHidden', !shadow.querySelector('.flash-meaning'));
+            shadow.querySelector('.flash-actions .btn.primary').click();
+            push('meaningShown', shadow.querySelector('.flash-meaning') ? shadow.querySelector('.flash-meaning').textContent : 'none');
+            shadow.querySelector('.flash-actions .btn.primary').click(); // 已记住
+
+            setTimeout(function () {
+              push('markCalls', markCalls);
+
+              // 关闭复习，打开批注栏 → 卡片 AI 审查
+              shadow.querySelector('#enb-review-close').click();
+              shadow.querySelector('#enb-edge').click();
+              push('panelOpen', !shadow.querySelector('#enb-panel').hidden);
+              var card = shadow.querySelector('.card');
+              push('card', !!card);
+              var aiBtn = card.querySelector('.icon-btn[title="我译 + AI 审查"]');
+              push('aiBtn', !!aiBtn);
+              aiBtn.click();
+              var box = card.querySelector('.ai-box');
+              push('aiBox', !!(box && !box.hidden));
+              var ta = box.querySelector('.ai-text');
+              ta.value = '委员会尚未作出决定。';
+              box.querySelector('.btn.primary').click();
+
+              setTimeout(function () {
+                push('reviewCalls', reviewCalls);
+                push('aiReview', !!(shadow.querySelector('.ai-review')));
+                push('aiReviewText', shadow.querySelector('.ai-review') ? shadow.querySelector('.ai-review').textContent.slice(0, 40) : 'none');
+                push('badgeAfter', shadow.querySelector('#enb-bubble-badge').textContent);
+                report();
+              }, 500);
+            }, 400);
+          } catch (e) {
+            errors.push(String((e && e.stack) || e));
+            report();
+          }
+        }, 900);
+      });
+    })();
+  </script>
+</body>
+</html>

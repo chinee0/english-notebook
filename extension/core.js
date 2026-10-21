@@ -68,6 +68,52 @@
     return parts;
   }
 
+  /* ---------- AI 审查结果 ---------- */
+
+  const AI_TYPES = ['word', 'phrase', 'usage'];
+
+  /*
+   * 解析 DeepSeek 返回的审查 JSON。
+   * 容错：去掉 ```json 代码块、前后多余文字；校验 type / verdict；最多保留 12 条学习项。
+   */
+  function parseAIReview(raw) {
+    if (!raw) return null;
+    let text = String(raw).trim();
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        try { data = JSON.parse(text.slice(start, end + 1)); } catch (e2) { /* ignore */ }
+      }
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+
+    const verdicts = ['准确', '基本准确', '不准确'];
+    const out = {
+      verdict: verdicts.indexOf(data.verdict) !== -1 ? data.verdict : '基本准确',
+      feedback: cleanText(data.feedback, 2000),
+      items: [],
+    };
+    (Array.isArray(data.items) ? data.items : []).forEach(function (it) {
+      if (!it || typeof it !== 'object') return;
+      const type = AI_TYPES.indexOf(it.type) !== -1 ? it.type : 'phrase';
+      const text = cleanText(it.text, 200);
+      if (!text) return;
+      out.items.push({
+        type: type,
+        text: text,
+        meaning: cleanText(it.meaning, 300),
+        note: cleanText(it.note, 300),
+      });
+    });
+    out.items = out.items.slice(0, 12);
+    return out;
+  }
+
   /* ---------- 页面 / 网址 ---------- */
 
   function normalizePageUrl(raw) {
@@ -424,6 +470,8 @@
     touch: touch,
     cleanText: cleanText,
     splitForTranslation: splitForTranslation,
+    AI_TYPES: AI_TYPES,
+    parseAIReview: parseAIReview,
     normalizePageUrl: normalizePageUrl,
     normalizeHost: normalizeHost,
     hostOfPage: hostOfPage,

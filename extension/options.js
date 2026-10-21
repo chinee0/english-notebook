@@ -44,6 +44,7 @@ async function load() {
   renderSyncStatus();
   renderGroups();
   renderRecords();
+  loadStudyStats();
 }
 
 function fillSettings() {
@@ -55,6 +56,11 @@ function fillSettings() {
 
   $('sync-endpoint').value = sync.endpoint || 'http://127.0.0.1:17890';
   $('sync-path').value = (summary.sync && summary.sync.dataFile) || '';
+
+  const ai = settings.ai || {};
+  $('ai-base').value = ai.baseUrl || 'https://api.deepseek.com';
+  $('ai-model').value = ai.model || 'deepseek-chat';
+  $('ai-key').value = ai.apiKey || '';
 
   $('trans-provider').value = trans.provider || 'mymemory';
   $('trans-lang').value = trans.targetLang || 'zh-CN';
@@ -90,6 +96,41 @@ function updateProviderFields() {
   const provider = $('trans-provider').value;
   $('openai-fields').style.display = provider === 'openai' ? 'grid' : 'none';
   $('custom-fields').style.display = provider === 'custom' ? 'grid' : 'none';
+}
+
+/* ---------------- DeepSeek AI ---------------- */
+
+async function loadStudyStats() {
+  const resp = await send({ type: 'GET_STUDY_DATA' });
+  const items = resp && resp.ok ? (resp.items || []) : [];
+  const el = $('study-stats');
+  if (el) el.textContent = '本地学习条目：' + items.length + ' 条（仅本机保存，不参与 git 同步）';
+}
+
+async function saveAi() {
+  const ai = {
+    baseUrl: $('ai-base').value.trim() || 'https://api.deepseek.com',
+    model: $('ai-model').value.trim() || 'deepseek-chat',
+    apiKey: $('ai-key').value.trim(),
+  };
+  const resp = await send({ type: 'SAVE_SETTINGS', settings: { ai: ai } });
+  if (resp && resp.ok) {
+    setStatus($('ai-test-result'), 'AI 配置已保存（仅本机，不会上传 git）', 'ok');
+    await load();
+  } else {
+    setStatus($('ai-test-result'), '保存失败：' + ((resp && resp.error) || '未知错误'), 'bad');
+  }
+}
+
+async function testAi() {
+  const el = $('ai-test-result');
+  setStatus(el, '正在请求 DeepSeek…');
+  const resp = await send({ type: 'TEST_AI' });
+  if (resp && resp.ok) {
+    setStatus(el, '连接成功，模型回复：' + resp.text, 'ok');
+  } else {
+    setStatus(el, '连接失败：' + ((resp && resp.error) || '未知错误'), 'bad');
+  }
 }
 
 /* ---------------- 同步 ---------------- */
@@ -354,6 +395,9 @@ $('btn-sync-now').addEventListener('click', function () { syncNow(); });
 $('btn-save-trans').addEventListener('click', function () { saveTranslation(); });
 $('btn-test-trans').addEventListener('click', function () { testTranslation(); });
 $('trans-provider').addEventListener('change', updateProviderFields);
+
+$('btn-save-ai').addEventListener('click', function () { saveAi(); });
+$('btn-test-ai').addEventListener('click', function () { testAi(); });
 
 $('btn-add-group').addEventListener('click', function () { addGroup(); });
 

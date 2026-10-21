@@ -25,6 +25,14 @@
   let lastHref = location.href;
   let tickTimer = null;
 
+  /* AI 审查产生的学习条目：只存在本地，不参与 git 同步 */
+  let studyReviews = {};
+  let studyItems = [];
+  let reviewOpen = false;
+  let reviewFilter = 'all';
+  let reviewIndex = 0;
+  let reviewRevealed = false;
+
   /* ---------------- 通信 ---------------- */
 
   function send(message) {
@@ -49,6 +57,7 @@
     installSpaWatcher();
     startTick();
     reloadPageState();
+    loadStudyData();
   }
 
   async function reloadPageState() {
@@ -123,6 +132,36 @@
       var unit = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? window.innerHeight : 1);
       window.scrollBy(0, e.deltaY * unit);
     }, { passive: false });
+
+    /* 常驻气泡 + 复习面板 */
+    qs('enb-bubble').addEventListener('click', function (e) {
+      e.stopPropagation();
+      toggleBubbleMenu();
+    });
+    qs('enb-bubble-menu').addEventListener('click', function (e) {
+      var act = e.target.closest('button[data-act]');
+      if (!act) return;
+      hideBubbleMenu();
+      if (act.dataset.act === 'review') openReviewPanel();
+      else if (act.dataset.act === 'panel') togglePanel(true);
+      else if (act.dataset.act === 'options') send({ type: 'OPEN_OPTIONS' });
+    });
+    qs('enb-review-close').addEventListener('click', closeReviewPanel);
+    qs('enb-review-settings').addEventListener('click', function () { send({ type: 'OPEN_OPTIONS' }); });
+    qs('enb-review-filters').addEventListener('click', function (e) {
+      var chip = e.target.closest('.chip');
+      if (!chip) return;
+      reviewFilter = chip.dataset.type;
+      reviewIndex = 0;
+      reviewRevealed = false;
+      renderReviewPanel();
+    });
+    document.addEventListener('click', function (e) {
+      var menu = qs('enb-bubble-menu');
+      if (!menu || menu.hidden) return;
+      var path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+      if (path.indexOf(qs('enb-bubble')) === -1 && path.indexOf(menu) === -1) hideBubbleMenu();
+    });
   }
 
   function qs(id) {
@@ -167,7 +206,10 @@
     const panel = qs('enb-panel');
     panel.hidden = !panelOpen;
     qs('enb-edge').hidden = panelOpen || !pageItems.length;
-    if (panelOpen) renderPanel();
+    if (panelOpen) {
+      closeReviewPanel();
+      renderPanel();
+    }
   }
 
   function updateEdge() {
@@ -217,6 +259,193 @@
     sortedItems().forEach(function (item) { list.appendChild(buildCard(item)); });
     list.appendChild(h('div', { class: 'scroll-hint', text: '当前视口没有批注，滚动页面查看' }));
     scheduleLayout();
+  }
+
+  /* ---------------- 学习条目 / 复习 / AI 审查 ---------------- */
+
+  async function loadStudyData() {
+    const resp = await send({ type: 'GET_STUDY_DATA' });
+    if (!resp || !resp.ok) return;
+    studyReviews = resp.reviews || {};
+    studyItems = resp.items || [];
+    renderBubbleBadge();
+    if (panelOpen) renderPanel();
+    if (reviewOpen) renderReviewPanel();
+  }
+
+  function renderBubbleBadge() {
+    const badge = qs('enb-bubble-badge');
+    if (!badge) return;
+    const n = studyItems.length;
+    badge.hidden = n === 0;
+    badge.textContent = n > 99 ? '99+' : String(n);
+  }
+
+  function toggleBubbleMenu(force) {
+    const menu = qs('enb-bubble-menu');
+    if (!menu) return;
+    menu.hidden = force === undefined ? !menu.hidden : !force;
+  }
+
+  function hideBubbleMenu() {
+    const menu = qs('enb-bubble-menu');
+    if (menu) menu.hidden = true;
+  }
+
+  function openReviewPanel() {
+    reviewOpen = true;
+    reviewFilter = 'all';
+    reviewIndex = 0;
+    reviewRevealed = false;
+    hideBubbleMenu();
+    togglePanel(false);
+    qs('enb-review').hidden = false;
+    loadStudyData();
+    renderReviewPanel();
+  }
+
+  function closeReviewPanel() {
+    reviewOpen = false;
+    const el = qs('enb-review');
+    if (el) el.hidden = true;
+  }
+
+  function typeLabel(type) {
+    return type === 'word' ? '单词' : type === 'phrase' ? '词组' : type === 'usage' ? '固定用法' : '知识点';
+  }
+
+  function reviewList() {
+    return reviewFilter === 'all' ? studyItems : studyItems.filter(function (it) { return it.type === reviewFilter; });
+  }
+
+  function renderReviewPanel() {
+    if (!reviewOpen) return;
+    const body = qs('enb-review-body');
+    if (!body) return;
+    const filters = qs('enb-review-filters');
+    Array.prototype.forEach.call(filters.querySelectorAll('.chip'), function (chip) {
+      chip.classList.toggle('active', chip.dataset.type === reviewFilter);
+    });
+    const list = reviewList();
+    qs('enb-review-count').textContent = list.length ? String(list.length) : '';
+    body.textContent = '';
+    if (!list.length) {
+      body.appendChild(h('div', { class: 'empty' },
+        h('p', { text: reviewFilter === 'all' ? '还没有学习条目。' : '这个分类下还没有条目。' }),
+        h('p', { class: 'hint', text: '在批注卡片里点 🧠，写下你的翻译让 AI 审查，就会自动提取单词 / 词组 / 固定用法到这里。' })
+      ));
+      return;
+    }
+    reviewIndex = ((reviewIndex % list.length) + list.length) % list.length;
+    const item = list[reviewIndex];
+    const card = h('div', { class: 'flashcard' });
+    card.appendChild(h('div', { class: 'flash-type', text: typeLabel(item.type) }));
+    card.appendChild(h('div', { class: 'flash-text', text: item.text }));
+    if (reviewRevealed) {
+      card.appendChild(h('div', { class: 'flash-meaning', text: item.meaning || '（AI 没有给释义）' }));
+      if (item.note) card.appendChild(h('div', { class: 'flash-note', text: item.note }));
+    }
+    const actions = h('div', { class: 'flash-actions' });
+    if (!reviewRevealed) {
+      actions.appendChild(h('button', {
+        class: 'btn primary small',
+        text: '显示答案',
+        onclick: function () { reviewRevealed = true; renderReviewPanel(); },
+      }));
+    } else {
+      actions.appendChild(h('button', {
+        class: 'btn primary small',
+        text: '已记住，下一个',
+        onclick: function () { markReviewed(item.id); },
+      }));
+      actions.appendChild(h('button', {
+        class: 'btn small',
+        text: '再看一次',
+        onclick: function () { reviewRevealed = false; renderReviewPanel(); },
+      }));
+    }
+    actions.appendChild(h('button', {
+      class: 'btn small',
+      text: '下一个',
+      onclick: function () { reviewIndex++; reviewRevealed = false; renderReviewPanel(); },
+    }));
+    card.appendChild(actions);
+    card.appendChild(h('div', {
+      class: 'flash-progress',
+      text: (reviewIndex + 1) + ' / ' + list.length + ' · 本地保存，不参与 git 同步',
+    }));
+    body.appendChild(card);
+  }
+
+  async function markReviewed(id) {
+    await send({ type: 'MARK_STUDY_REVIEWED', ids: [id] });
+    reviewIndex++;
+    reviewRevealed = false;
+    await loadStudyData();
+    renderReviewPanel();
+  }
+
+  function buildReviewBlock(review) {
+    const block = h('div', { class: 'ai-review' });
+    const verdictClass = review.verdict === '准确' ? ' ok' : review.verdict === '不准确' ? ' bad' : '';
+    block.appendChild(h('div', { class: 'ai-verdict' + verdictClass, text: 'AI 审查：' + (review.verdict || '基本准确') }));
+    if (review.feedback) block.appendChild(h('div', { class: 'ai-feedback', text: review.feedback }));
+    const items = studyItems.filter(function (it) { return it.sourceItemId === review.itemId; });
+    if (items.length) {
+      const list = h('div', { class: 'ai-items' });
+      items.forEach(function (it) {
+        list.appendChild(h('div', { class: 'ai-item' },
+          h('span', { class: 'ai-type', text: typeLabel(it.type) }),
+          h('span', { class: 'ai-text', text: it.text }),
+          h('span', { class: 'ai-meaning', text: it.meaning || '' })
+        ));
+      });
+      block.appendChild(list);
+    }
+    return block;
+  }
+
+  function openAIReviewEditor(item, card) {
+    let box = card.querySelector('.ai-box');
+    if (!box) {
+      const ta = h('textarea', { class: 'ai-text', rows: '2', placeholder: '先写下你的中文翻译，AI 会审查并提取你不熟悉的单词 / 词组 / 固定用法' });
+      const status = h('div', { class: 'ai-status' });
+      const submit = h('button', { class: 'btn primary small', text: '让 AI 审查' });
+      submit.addEventListener('click', function () { submitAIReview(item, card, ta, status); });
+      const cancel = h('button', { class: 'btn small', text: '取消', onclick: function () { box.hidden = true; scheduleLayout(); } });
+      box = h('div', { class: 'ai-box' },
+        ta,
+        h('div', { class: 'editor-actions' }, submit, cancel),
+        status
+      );
+      card.appendChild(box);
+    }
+    box.hidden = false;
+    const ta = box.querySelector('.ai-text');
+    const review = studyReviews[item.id];
+    ta.value = review && review.userTranslation ? review.userTranslation : '';
+    box.querySelector('.ai-status').textContent = '';
+    ta.focus();
+    scheduleLayout();
+  }
+
+  async function submitAIReview(item, card, textarea, statusEl) {
+    const userTranslation = textarea.value.trim();
+    if (!userTranslation) { toast('先写一下你的翻译'); return; }
+    statusEl.textContent = 'AI 正在审查，请稍候…';
+    const resp = await send({
+      type: 'REVIEW_TRANSLATION',
+      itemId: item.id,
+      pageUrl: location.href,
+      text: item.text,
+      userTranslation: userTranslation,
+    });
+    if (!resp || !resp.ok) {
+      statusEl.textContent = '审查失败：' + ((resp && resp.error) || '未知错误');
+      return;
+    }
+    toast('AI 审查完成，学习条目已保存到本地');
+    await loadStudyData();
   }
 
   /* ---------------- 跟随滚动的边栏定位 ---------------- */
@@ -303,6 +532,7 @@
       actionBtn('🔊', '朗读', function () { speak(item.text); }),
       actionBtn('✎', '编辑译文', function () { toggleEditor(item, card); }),
       actionBtn('⌖', '定位到原文', function () { focusItem(item.id); }),
+      actionBtn('🧠', '我译 + AI 审查', function () { openAIReviewEditor(item, card); }),
       actionBtn('🗑', '删除批注', function () { removeItem(item); })
     );
     card.appendChild(actions);
@@ -315,6 +545,8 @@
       )
     );
     card.appendChild(editor);
+    const review = studyReviews[item.id];
+    if (review) card.appendChild(buildReviewBlock(review));
     return card;
   }
 
@@ -433,6 +665,7 @@
     window.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
         if (!qs('enb-setup').hidden) { dismissSetup(); e.preventDefault(); return; }
+        if (reviewOpen) { closeReviewPanel(); e.preventDefault(); return; }
         if (panelOpen) { togglePanel(false); e.preventDefault(); }
         return;
       }
@@ -482,6 +715,11 @@
       sendResponse({ ok: true });
       return;
     }
+    if (message.type === 'STUDY_UPDATED') {
+      loadStudyData();
+      sendResponse({ ok: true });
+      return;
+    }
     if (message.type === 'SHOW_TOAST') {
       toast(message.message);
       sendResponse({ ok: true });
@@ -511,6 +749,30 @@
           '<span class="hint">Alt+O 开关 · Alt+M 设置</span>' +
         '</footer>' +
       '</aside>' +
+
+      '<aside id="enb-review" class="panel review" hidden>' +
+        '<header class="panel-head">' +
+          '<span class="panel-title">复习</span>' +
+          '<span id="enb-review-count" class="count"></span>' +
+          '<button class="icon" id="enb-review-settings" title="设置">⚙</button>' +
+          '<button class="icon" id="enb-review-close" title="关闭 (Esc)">✕</button>' +
+        '</header>' +
+        '<div id="enb-review-filters" class="review-filters">' +
+          '<button class="chip active" data-type="all">全部</button>' +
+          '<button class="chip" data-type="word">单词</button>' +
+          '<button class="chip" data-type="phrase">词组</button>' +
+          '<button class="chip" data-type="usage">固定用法</button>' +
+        '</div>' +
+        '<div id="enb-review-body" class="review-body"></div>' +
+        '<footer class="panel-foot"><span class="hint">来自 AI 审查 · 仅本地保存，不参与 git 同步</span></footer>' +
+      '</aside>' +
+
+      '<button id="enb-bubble" class="bubble" title="English Notebook">📚<span id="enb-bubble-badge" class="bubble-badge" hidden></span></button>' +
+      '<div id="enb-bubble-menu" class="bubble-menu" hidden>' +
+        '<button data-act="review">📖 复习</button>' +
+        '<button data-act="panel">📝 批注栏</button>' +
+        '<button data-act="options">⚙ 设置</button>' +
+      '</div>' +
 
       '<div id="enb-setup" class="backdrop" hidden>' +
         '<section class="dialog">' +
@@ -574,6 +836,50 @@
     '  border-radius: 8px 0 0 8px; padding: 10px 5px; letter-spacing: 1px;',
     '  box-shadow: 0 4px 14px rgba(0,0,0,.18); font-size: 12px;',
     '}',
+    '#enb-panel { z-index: 1; }',
+    '.review { position: fixed; top: 12px; right: 12px; bottom: 12px; width: 370px; max-width: calc(100vw - 24px); z-index: 2; }',
+    '.bubble {',
+    '  position: fixed; right: 18px; bottom: 18px; width: 48px; height: 48px; border-radius: 50%; border: none;',
+    '  background: var(--enb-accent); color: #fff; font-size: 20px; line-height: 1; padding: 0;',
+    '  box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: auto; z-index: 4;',
+    '}',
+    '.bubble-badge {',
+    '  position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px;',
+    '  background: var(--enb-danger); color: #fff; font-size: 10px; line-height: 18px; padding: 0 4px;',
+    '}',
+    '.bubble-menu {',
+    '  position: fixed; right: 18px; bottom: 76px; width: 150px; display: flex; flex-direction: column; gap: 2px;',
+    '  padding: 6px; background: var(--enb-bg); border: 1px solid var(--enb-border); border-radius: 10px;',
+    '  box-shadow: var(--enb-shadow); z-index: 5; pointer-events: auto;',
+    '}',
+    '.bubble-menu button { border: none; background: transparent; text-align: left; padding: 8px 10px; border-radius: 6px; }',
+    '.bubble-menu button:hover { background: var(--enb-hover); }',
+    '.review-filters { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--enb-border); flex-wrap: wrap; }',
+    '.chip { border: 1px solid var(--enb-border); background: var(--enb-bg); border-radius: 999px; padding: 2px 10px; font-size: 12px; }',
+    '.chip.active { background: var(--enb-accent); border-color: var(--enb-accent); color: #fff; }',
+    '.review-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px; }',
+    '.flashcard { border: 1px solid var(--enb-border); border-radius: 10px; padding: 14px; }',
+    '.flash-type { color: var(--enb-muted); font-size: 12px; }',
+    '.flash-text { font-size: 20px; font-weight: 600; margin: 6px 0 12px; word-break: break-word; }',
+    '.flash-meaning { font-size: 14px; margin-bottom: 6px; }',
+    '.flash-note { color: var(--enb-muted); font-size: 12px; }',
+    '.flash-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }',
+    '.flash-progress { color: var(--enb-muted); font-size: 11px; margin-top: 10px; }',
+    '.ai-box { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }',
+    '.ai-text { width: 100%; border: 1px solid var(--enb-border); border-radius: 6px; padding: 6px 8px; background: var(--enb-bg); resize: vertical; min-height: 48px; outline: none; }',
+    '.ai-status { font-size: 12px; color: var(--enb-muted); white-space: pre-wrap; }',
+    '.ai-review { margin-top: 8px; border-top: 1px dashed var(--enb-border); padding-top: 8px; }',
+    '.ai-verdict { font-size: 12px; font-weight: 600; }',
+    '.ai-verdict.ok { color: #10b981; }',
+    '.ai-verdict.bad { color: var(--enb-danger); }',
+    '.ai-feedback { font-size: 12px; color: var(--enb-muted); white-space: pre-wrap; margin-top: 2px; }',
+    '.ai-items { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }',
+    '.ai-item { display: flex; gap: 6px; align-items: baseline; font-size: 12px; }',
+    '.ai-type { color: var(--enb-muted); border: 1px solid var(--enb-border); border-radius: 4px; padding: 0 4px; font-size: 10px; }',
+    '.ai-item .ai-text { border: none; background: transparent; padding: 0; min-height: 0; width: auto; font-size: 12px; font-weight: 600; }',
+    '.ai-meaning { color: var(--enb-muted); }',
+    '.backdrop { z-index: 8; }',
+    '.toast { z-index: 9; }',
     '.panel {',
     '  position: fixed; top: 12px; right: 12px; bottom: 12px; width: 340px; max-width: calc(100vw - 24px);',
     '  background: var(--enb-bg); border: 1px solid var(--enb-border); border-radius: 12px;',
@@ -619,7 +925,7 @@
     '.input:focus { border-color: var(--enb-accent); }',
     '.error { color: var(--enb-danger); font-size: 12px; min-height: 16px; margin: 6px 0 2px; }',
     '.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }',
-    '.toast { position: fixed; right: 16px; bottom: 16px; background: #111827; color: #f9fafb; border-radius: 10px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.25); pointer-events: auto; max-width: min(420px, calc(100vw - 32px)); }',
+    '.toast { position: fixed; right: 16px; bottom: 80px; background: #111827; color: #f9fafb; border-radius: 10px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.25); pointer-events: auto; max-width: min(420px, calc(100vw - 32px)); }',
   ].join('\n');
 
   /* ---------------- 启动 ---------------- */

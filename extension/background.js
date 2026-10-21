@@ -18,10 +18,18 @@ const DEFAULT_SETTINGS = {
     endpoint: 'http://127.0.0.1:17890',
     autoSync: true,
   },
+  /* DeepSeek AI 审查配置：只存在 chrome.storage.local，不参与 git 同步 */
+  ai: {
+    baseUrl: 'https://api.deepseek.com',
+    apiKey: '',
+    model: 'deepseek-chat',
+  },
 };
 
 let stateCache = null;
 let settingsCache = null;
+let studyReviews = {};
+let studyItems = [];
 let syncCache = { serverUp: false, configured: false, dataFile: '', git: null, checkedAt: 0 };
 let lastRevision = '';
 let pushTimer = null;
@@ -55,11 +63,19 @@ async function ensureInit() {
   if (stateCache && settingsCache) return;
   if (initPromise) return initPromise;
   initPromise = (async function () {
-    const data = await storageGet(['state', 'settings', 'setupPrompted']);
+    const data = await storageGet(['state', 'settings', 'setupPrompted', 'studyReviews', 'studyItems']);
     stateCache = C.normalizeState(data.state);
     settingsCache = deepDefaults(data.settings, DEFAULT_SETTINGS);
     setupPrompted = !!data.setupPrompted || forceSetupPrompted;
-    await storageSet({ state: stateCache, settings: settingsCache, setupPrompted: setupPrompted });
+    studyReviews = data.studyReviews && typeof data.studyReviews === 'object' ? data.studyReviews : {};
+    studyItems = Array.isArray(data.studyItems) ? data.studyItems : [];
+    await storageSet({
+      state: stateCache,
+      settings: settingsCache,
+      setupPrompted: setupPrompted,
+      studyReviews: studyReviews,
+      studyItems: studyItems,
+    });
   })().then(function () { initPromise = null; });
   return initPromise;
 }
@@ -348,6 +364,107 @@ async function translateText(text) {
   return { ok: false, error: '未知翻译 provider: ' + provider };
 }
 
+/* ---------------- DeepSeek AI 审查（学习条目仅本地存储，不参与同步） ---------------- */
+
+async function persistStudy() {
+  await storageSet({ studyReviews: studyReviews || {}, studyItems: studyItems || [] });
+}
+
+async function callDeepSeek(messages) {
+  const ai = settingsCache.ai || {};
+  if (!ai.apiKey) return { ok: false, error: '请先在扩展设置页填写 DeepSeek API Key' };
+  const base = String(ai.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
+  const r = await fetchJson(base + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ai.apiKey },
+    body: JSON.stringify({
+      model: ai.model || 'deepseek-chat',
+      temperature: 0.2,
+      messages: messages,
+      response_format: { type: 'json_object' },
+    }),
+  }, 45000);
+  if (r.status !== 200) {
+    let msg = 'HTTP ' + r.status;
+    if (r.data && r.data.error) {
+      msg = typeof r.data.error === 'string' ? r.data.error : (r.data.error.message || JSON.stringify(r.data.error));
+    }
+    return { ok: false, error: 'DeepSeek 接口错误：' + msg };
+  }
+  const content = r.data && r.data.choices && r.data.choices[0] &&
+    r.data.choices[0].message && r.data.choices[0].message.content;
+  if (!content) return { ok: false, error: 'DeepSeek 没有返回内容' };
+  return { ok: true, text: String(content).trim() };
+}
+
+async function reviewTranslation(payload) {
+  const text = C.cleanText(payload.text, 4000);
+  const userTranslation = C.cleanText(payload.userTranslation, 2000);
+  if (!text) return { ok: false, error: '原文为空' };
+  if (!userTranslation) return { ok: false, error: '请先写下你的翻译' };
+  if (!settingsCache.ai || !settingsCache.ai.apiKey) {
+    return { ok: false, error: '请先在扩展设置页填写 DeepSeek API Key' };
+  }
+
+  const messages = [
+    {
+      role: 'system',
+      content: '你是一名严谨的英语老师，帮助中文母语学习者复盘翻译。只输出一个 JSON 对象，不要输出 Markdown 代码块或额外解释。',
+    },
+    {
+      role: 'user',
+      content: [
+        '英文原文：' + text,
+        '学习者的中文翻译：' + userTranslation,
+        '',
+        '请完成三件事：',
+        '1. 判断翻译质量（verdict 只能是：准确 / 基本准确 / 不准确）；',
+        '2. 用中文给出简短点评（feedback），指出误译或更自然的表达；',
+        '3. 从原文中提取学习者可能不熟悉的单词、词组、固定用法（items，3-8 条；必须是原文里出现过的表达）。',
+        '',
+        '严格按这个 JSON 格式输出：',
+        '{"verdict":"基本准确","feedback":"中文点评","items":[{"type":"word|phrase|usage","text":"英文表达","meaning":"中文释义","note":"简短用法提示"}]}',
+        'type 只能是 word（单词）、phrase（词组）、usage（固定用法）之一。',
+      ].join('\n'),
+    },
+  ];
+
+  const result = await callDeepSeek(messages);
+  if (!result.ok) return result;
+  const parsed = C.parseAIReview(result.text);
+  if (!parsed) return { ok: false, error: 'AI 返回的 JSON 无法解析，请重试' };
+
+  const review = {
+    itemId: String(payload.itemId || ''),
+    pageUrl: C.normalizePageUrl(payload.pageUrl || ''),
+    original: text,
+    userTranslation: userTranslation,
+    verdict: parsed.verdict,
+    feedback: parsed.feedback,
+    createdAt: C.nowIso(),
+  };
+  studyReviews[review.itemId] = review;
+
+  const newItems = parsed.items.map(function (it) {
+    return {
+      id: C.newId('s'),
+      type: it.type,
+      text: it.text,
+      meaning: it.meaning,
+      note: it.note,
+      sourceItemId: review.itemId,
+      pageUrl: review.pageUrl,
+      createdAt: C.nowIso(),
+      reviewedCount: 0,
+      lastReviewedAt: null,
+    };
+  });
+  studyItems = (studyItems || []).filter(function (it) { return it.sourceItemId !== review.itemId; }).concat(newItems);
+  await persistStudy();
+  notifyTabs({ type: 'STUDY_UPDATED' });
+  return { ok: true, review: review, items: newItems, reviews: studyReviews };
+}
+
 /* ---------------- 同步 ---------------- */
 
 function endpoint() {
@@ -571,6 +688,32 @@ async function handleMessage(message, sender) {
 
   if (type === 'TEST_TRANSLATION') {
     return translateText(message.text || 'The committee has yet to reach a decision.');
+  }
+
+  if (type === 'GET_STUDY_DATA') {
+    return { ok: true, reviews: studyReviews || {}, items: studyItems || [] };
+  }
+
+  if (type === 'REVIEW_TRANSLATION') {
+    return reviewTranslation(message);
+  }
+
+  if (type === 'MARK_STUDY_REVIEWED') {
+    const ids = Array.isArray(message.ids) ? message.ids : [];
+    const set = new Set(ids);
+    (studyItems || []).forEach(function (it) {
+      if (set.has(it.id)) {
+        it.reviewedCount = (it.reviewedCount || 0) + 1;
+        it.lastReviewedAt = C.nowIso();
+      }
+    });
+    await persistStudy();
+    return { ok: true, items: studyItems };
+  }
+
+  if (type === 'TEST_AI') {
+    const r = await callDeepSeek([{ role: 'user', content: '只回复两个字：正常' }]);
+    return r.ok ? { ok: true, text: r.text } : r;
   }
 
   if (type === 'OPEN_OPTIONS') {

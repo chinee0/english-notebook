@@ -95,7 +95,7 @@
 <body>
   <header>
     <h1>English Notebook</h1>
-    <span class="sub">设置与批注管理 · v0.3.0</span>
+    <span class="sub">设置与批注管理 · v0.4.0</span>
   </header>
 
   <main>
@@ -159,6 +159,22 @@
         <button id="btn-test-trans">测试翻译</button>
       </div>
       <div id="trans-test-result" class="status" hidden></div>
+    </section>
+
+    <section>
+      <h2>DeepSeek AI 审查</h2>
+      <p class="desc">批注卡片里的「我译 + AI 审查」使用。<b>API Key 只保存在本机扩展存储</b>，不会写入同步 JSON，也不会进 git。</p>
+      <div class="row">
+        <label class="field"><span>Base URL</span><input id="ai-base" type="text" placeholder="https://api.deepseek.com" /></label>
+        <label class="field"><span>模型</span><input id="ai-model" type="text" placeholder="deepseek-chat" /></label>
+      </div>
+      <label class="field"><span>DeepSeek API Key</span><input id="ai-key" type="password" placeholder="sk-..." /></label>
+      <div class="actions">
+        <button id="btn-save-ai" class="primary">保存 AI 配置</button>
+        <button id="btn-test-ai">测试连接</button>
+      </div>
+      <div id="ai-test-result" class="status" hidden></div>
+      <p class="muted" id="study-stats" style="margin-top:10px;"></p>
     </section>
 
     <section>

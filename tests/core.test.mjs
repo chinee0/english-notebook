@@ -210,3 +210,55 @@ test('splitForTranslation: 无标点时按空格切，空文本返回空数组',
   assert.deepEqual(C.splitForTranslation('   ', 450), []);
   assert.deepEqual(C.splitForTranslation('', 450), []);
 });
+
+test('parseAIReview: 解析标准 JSON 并规范字段', function () {
+  const parsed = C.parseAIReview(JSON.stringify({
+    verdict: '基本准确',
+    feedback: '整体不错，"reach a decision" 可以更自然。',
+    items: [
+      { type: 'word', text: 'committee', meaning: '委员会', note: '集合名词' },
+      { type: 'phrase', text: 'reach a decision', meaning: '作出决定', note: '' },
+      { type: 'usage', text: 'has yet to', meaning: '尚未', note: '后接动词原形' },
+    ],
+  }));
+  assert.ok(parsed);
+  assert.equal(parsed.verdict, '基本准确');
+  assert.equal(parsed.feedback.indexOf('整体不错'), 0);
+  assert.equal(parsed.items.length, 3);
+  assert.equal(parsed.items[1].type, 'phrase');
+  assert.equal(parsed.items[2].text, 'has yet to');
+});
+
+test('parseAIReview: 容忍代码块/前后废话/非法 type/空文本', function () {
+  const parsed = C.parseAIReview([
+    '好的，以下是审查结果：',
+    '```json',
+    JSON.stringify({
+      verdict: '不准确',
+      feedback: '误译了 "yet to"。',
+      items: [
+        { type: 'unknown', text: 'yet to reach', meaning: '尚未达到' },
+        { type: 'word', text: '   ', meaning: '空文本应丢弃' },
+        { type: 'word', text: 'proposal', meaning: '提案' },
+      ],
+    }),
+    '```',
+  ].join('\n'));
+  assert.ok(parsed);
+  assert.equal(parsed.verdict, '不准确');
+  assert.equal(parsed.items.length, 2);
+  assert.equal(parsed.items[0].type, 'phrase', '非法 type 回退为 phrase');
+  assert.equal(parsed.items[1].text, 'proposal');
+});
+
+test('parseAIReview: 非法 JSON 返回 null，非法 verdict 回退，items 上限 12', function () {
+  assert.equal(C.parseAIReview('not json at all'), null);
+  assert.equal(C.parseAIReview(''), null);
+
+  const many = [];
+  for (let i = 0; i < 20; i++) many.push({ type: 'word', text: 'w' + i, meaning: 'm' + i });
+  const parsed = C.parseAIReview(JSON.stringify({ verdict: '完美', feedback: '', items: many }));
+  assert.ok(parsed);
+  assert.equal(parsed.verdict, '基本准确');
+  assert.equal(parsed.items.length, 12);
+});

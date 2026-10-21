@@ -31,6 +31,8 @@ sync-server（Node，127.0.0.1:17890）：读写用户指定绝对路径的 JSON
 - **设置/管理页**：同步状态与路径、翻译 Provider、分组增删改、全部批注搜索/改译文/换组/删除、JSON 导入导出。
 - **本地 git 同步**：数据文件自动创建、自动 `git commit`、增量合并（同 id 取 `updatedAt` 较新者）。
 - **翻译 Provider**：MyMemory（默认免费）/ Google 免 Key / OpenAI 兼容接口 / 自定义 HTTP 接口 / 关闭自动翻译。
+- **DeepSeek AI 审查**：批注卡片点 🧠，先写下自己的中文翻译，DeepSeek 会点评并提取不熟悉的单词 / 词组 / 固定用法，保存到本机。
+- **常驻复习气泡**：页面右下角 📚 气泡，点开可「复习 / 批注栏 / 设置」；复习按 单词 / 词组 / 固定用法 分类，卡片翻面、标记已记住。
 
 ## 安装
 
@@ -52,10 +54,14 @@ sync-server（Node，127.0.0.1:17890）：读写用户指定绝对路径的 JSON
 | 右键 → 翻译并记录 | 翻译选中文本并生成批注（`Alt+T` 同效） |
 | 右键 → 仅记录 | 只记原文，译文稍后手动补 |
 | 批注栏 | 右侧边缘「批注 N」标签，或 `Alt+O` |
+| 🧠 我译 + AI 审查 | 批注卡片里的按钮：输入自己的翻译，AI 点评并生成学习条目 |
+| 📚 常驻气泡 | 右下角，点开 → 复习 / 批注栏 / 设置 |
 | 设置 / 全部记录 | `Alt+M`，或扩展详情 → 扩展选项 |
 | `Esc` | 关闭批注栏 / 弹窗 |
 
 **嵌套批注**：在一段已有波浪线的文字里再选一个短语右键记录，会自动作为子批注（不同颜色的波浪线、批注栏里缩进）。删除父批注会级联删除子批注。
+
+> **隐私与同步边界**：DeepSeek API Key、AI 审查记录、学习条目只保存在本机 `chrome.storage.local`，不会写入 `data/english-notes.json`，也不会随 git 同步或上传。
 
 ## 数据与同步
 
@@ -126,6 +132,7 @@ node tests/serve.mjs        # 打印 PORT，供浏览器打开 tests/*.html 冒�
 - `tests/render-smoke.html`：浏览器里验证嵌套波浪线、颜色、跨标签节点匹配、选区父级识别。
 - `tests/content-smoke.html`：用 chrome API 桩加载真实 `content.js`，验证 UI 注入、批注栏、卡片缩进、toast、选区采集。
 - `tests/comment-scroll-smoke.html`：验证批注卡片随页面滚动精确位移（滚动 60px → 卡片 top 同步 -60px）。
+- `tests/bubble-review-smoke.html`：验证常驻气泡、气泡菜单、复习筛选/翻面/标记、卡片 AI 审查流程。
 
 无头浏览器冒烟（Edge/Chrome）：
 
