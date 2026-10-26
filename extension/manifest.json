@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "English Notebook · 英文批注与翻译",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "选中英文右键翻译并记录，右侧 Word 式批注栏，彩色嵌套波浪线，按页面绑定，本地 git 自动同步。",
   "permissions": ["contextMenus", "storage", "tabs"],
   "host_permissions": ["<all_urls>"],
