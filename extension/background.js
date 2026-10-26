@@ -359,6 +359,7 @@ if (chrome.tabs && chrome.tabs.onUpdated && typeof chrome.tabs.onUpdated.addList
       if (!settingsCache || !settingsCache.pdf || settingsCache.pdf.autoOpen === false) return;
       const url = (tab && tab.url) || changeInfo.url || '';
       if (!url) return;
+      if (String(url).indexOf('#enb-no-auto') !== -1) return;
       if (isPdfViewerUrl(url)) return;
       if (!isPdfUrl(url)) return;
       if (changeInfo.url !== url && changeInfo.status !== 'complete') return;

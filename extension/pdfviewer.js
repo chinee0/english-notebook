@@ -35,7 +35,8 @@
 
   if (!file) { fail('缺少 file 参数，无法打开 PDF。'); return; }
   try {
-    originalLink.href = file;
+    /* 带 #enb-no-auto 打开，绕过“自动转内置阅读器”，回到 Edge 默认 PDF 阅读器 */
+    originalLink.href = file + (file.indexOf('#') >= 0 ? '&' : '#') + 'enb-no-auto';
   } catch (e) { /* ignore */ }
 
   const recordButton = document.getElementById('pdf-record');
